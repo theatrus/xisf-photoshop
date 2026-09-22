@@ -57,7 +57,7 @@ Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Messages]
 WelcomeLabel2=This will install FITS and XISF file support in Adobe's shared Photoshop plugin folder, for all installed Photoshop versions.%n%nClose Photoshop before continuing. Existing Seiza plugin copies found in standard or registered Photoshop folders will be backed up and disabled to avoid duplicates. Your plugin preferences are kept.
-FinishedLabel=FITS and XISF support is installed. Start Photoshop, then use Help > About Plug-In > FITS or XISF to configure import settings.%n%nYou can remove these plugins later from Windows Settings > Apps. Preferences and backups are kept when uninstalling.
+FinishedLabelNoIcons=FITS and XISF support is installed. Start Photoshop, then use Help > About Plug-In > FITS or XISF to configure import settings.%n%nYou can remove these plugins later from Windows Settings > Apps. Preferences and backups are kept when uninstalling.
 
 [Code]
 var
