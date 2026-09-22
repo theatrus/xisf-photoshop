@@ -13,11 +13,14 @@
 #include "seiza_codec.h"
 #include "host_file.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <sstream>
 #include <vector>
+#include "options_ui.h"
 
 #ifndef SEIZA_FORMAT
 #error SEIZA_FORMAT must be 1 (FITS) or 2 (XISF)
@@ -30,7 +33,104 @@ struct HostError { int16 code; };
 struct State {
     std::unique_ptr<SeizaImage, decltype(&seiza_image_free)> image{nullptr, seiza_image_free};
     SeizaImageView view{};
+    uint32_t depth = 32;
+    std::vector<uint16_t> integerRow;
+    double minimum = 0;
+    double maximum = 1;
 };
+
+bool canStoreOptions(const FormatRecord& r) {
+    const auto* h = r.handleProcs;
+    return h && h->handleProcsVersion >= 1 && h->numHandleProcs >= 6 &&
+        h->newProc && h->disposeProc && h->getSizeProc && h->lockProc && h->unlockProc;
+}
+
+bool loadOptions(FormatRecord& r, SeizaOptions& options) {
+    if (!r.revertInfo || !canStoreOptions(r) ||
+        r.handleProcs->getSizeProc(r.revertInfo) != sizeof(SeizaOptions)) return false;
+    auto* data = r.handleProcs->lockProc(r.revertInfo, false);
+    if (!data) throw std::bad_alloc();
+    SeizaOptions stored;
+    std::memcpy(&stored, data, sizeof(stored));
+    r.handleProcs->unlockProc(r.revertInfo);
+    if (stored.magic != options.magic || stored.version != options.version ||
+        (stored.readDepth != 16 && stored.readDepth != 32) ||
+        (stored.writeDepth != 16 && stored.writeDepth != 32)) return false;
+    options = stored;
+    return true;
+}
+
+void storeOptions(FormatRecord& r, const SeizaOptions& options) {
+    if (!canStoreOptions(r)) {
+        if (options.readDepth == 16 || options.writeDepth == 16)
+            throw std::runtime_error("Photoshop's handle suite is required to remember 16-bit conversion options");
+        return;
+    }
+    auto& h = *r.handleProcs;
+    Handle handle = h.newProc(sizeof(options));
+    if (!handle) throw std::bad_alloc();
+    auto* data = h.lockProc(handle, false);
+    if (!data) { h.disposeProc(handle); throw std::bad_alloc(); }
+    std::memcpy(data, &options, sizeof(options));
+    h.unlockProc(handle);
+    if (r.revertInfo) h.disposeProc(r.revertInfo);
+    r.revertInfo = handle;
+}
+
+bool silent(const FormatRecord& r) {
+    return r.openForPreview || (r.descriptorParameters &&
+        r.descriptorParameters->playInfo == plugInDialogSilent);
+}
+
+uint32_t importDepth(FormatRecord& r, State& state) {
+    const auto& view = state.view;
+    SeizaOptions options;
+    const bool reverting = loadOptions(r, options);
+    if (r.openForPreview) return 32;
+    state.minimum = state.maximum = view.pixels[0];
+    for (size_t i = 0; i < view.samples; ++i) {
+        if (i % kIoChunk == 0 && r.abortProc && r.abortProc()) throw HostError{userCanceledErr};
+        const double v = view.pixels[i];
+        state.minimum = std::min(state.minimum, v);
+        state.maximum = std::max(state.maximum, v);
+    }
+    if (!reverting && !silent(r)) {
+        std::ostringstream text;
+        text << "Choose the Photoshop document depth.\n\n"
+             << "32-bit float preserves the decoded values, including negative and HDR values. "
+             << "Float32 has up to 24 bits of significant precision.\n\n"
+             << "16-bit integer enables Photoshop's normal 16-bit tools, but its internal range is "
+             << "0..32768 (about 15 bits plus an endpoint). The image minimum and maximum are rescaled "
+             << "to this range, using one shared scale for all channels. No samples are clipped. "
+             << "Rounding loses precision, and the original absolute scale is not retained on save.\n\n"
+             << "Source range: " << state.minimum << " to " << state.maximum << ".";
+        if (state.minimum == state.maximum) text << " This constant image will become zero (black).";
+        options.readDepth = chooseDepth("Seiza - Open image", text.str(), 32);
+        if (!options.readDepth) throw HostError{userCanceledErr};
+    }
+    storeOptions(r, options);
+    return options.readDepth;
+}
+
+void writeOptions(FormatRecord& r) {
+    SeizaOptions options;
+    loadOptions(r, options);
+    if (!silent(r)) {
+        const std::string text =
+            "Choose the sample format stored in the FITS/XISF file.\n\n"
+            "32-bit float preserves the current document's sample values. Saving a 16-bit document "
+            "as Float32 cannot recover precision already lost on import.\n\n"
+            "16-bit integer rounds normalized 0..1 values to 0..65535. Negative values become 0 "
+            "and values above 1 become 65535. Float32's 24-bit significant precision and HDR range "
+            "are lost. No stretch or automatic rescaling is applied.\n\n"
+            "Photoshop 16-bit documents already have about 15 bits plus an endpoint of precision. "
+            "Choose 32-bit float to avoid further quantization.";
+        options.writeDepth = chooseDepth("Seiza - Save image", text, options.writeDepth);
+        if (!options.writeDepth) throw HostError{userCanceledErr};
+    }
+    storeOptions(r, options);
+    r.data = nullptr;
+}
 
 void checkCancel(FormatRecord& r) {
     if (r.abortProc && r.abortProc()) throw HostError{userCanceledErr};
@@ -96,8 +196,8 @@ void row(FormatRecord& r, uint32_t width, uint32_t y, int16 plane, void* pixels)
         r.theRect.bottom = static_cast<int16>(y + 1);
     }
     r.loPlane = r.hiPlane = plane;
-    r.colBytes = sizeof(float);
-    r.rowBytes = static_cast<int32>(width * sizeof(float));
+    r.colBytes = r.depth == 16 ? sizeof(uint16_t) : sizeof(float);
+    r.rowBytes = static_cast<int32>(width * r.colBytes);
     r.planeBytes = 0; // one plane per transfer
     r.data = pixels;
 }
@@ -121,7 +221,12 @@ void readStart(FormatRecord& r, intptr_t& persistent) {
     if (seiza_image_view(decoded, &state->view)) throw std::runtime_error("Invalid decoded image");
     coordinates(r, state->view.width, state->view.height);
     r.imageMode = state->view.planes == 1 ? plugInModeGrayScale : plugInModeRGBColor;
-    r.depth = 32;
+    state->depth = importDepth(r, *state);
+    r.depth = static_cast<int16>(state->depth);
+    if (r.depth == 16) {
+        r.maxValue = 32768;
+        state->integerRow.resize(state->view.width);
+    }
     r.planes = static_cast<int16>(state->view.planes);
     for (int16 p = 0; p < r.planes; ++p) r.planeMap[p] = p;
     r.transparencyPlane = 0;
@@ -141,7 +246,15 @@ void readContinue(FormatRecord& r, intptr_t persistent) {
     for (uint32_t p = 0; p < v.planes; ++p) {
         for (uint32_t y = 0; y < v.height; ++y) {
             auto* samples = v.pixels + (static_cast<size_t>(p) * v.height + y) * v.width;
-            row(r, v.width, y, static_cast<int16>(p), const_cast<float*>(samples));
+            if (state->depth == 16) {
+                // Use double for the range so even opposite extreme finite f32
+                // endpoints rescale without overflowing. One range for all planes.
+                const double range = state->maximum - state->minimum;
+                for (uint32_t x = 0; x < v.width; ++x)
+                    state->integerRow[x] = range == 0 ? 0 : static_cast<uint16_t>(std::lround(
+                        ((static_cast<double>(samples[x]) - state->minimum) / range) * 32768.0));
+                row(r, v.width, y, static_cast<int16>(p), state->integerRow.data());
+            } else row(r, v.width, y, static_cast<int16>(p), const_cast<float*>(samples));
             advance(r);
             if (r.progressProc) r.progressProc(static_cast<int32>(p * v.height + y + 1), static_cast<int32>(v.planes * v.height));
         }
@@ -150,10 +263,10 @@ void readContinue(FormatRecord& r, intptr_t persistent) {
 }
 
 void validateWrite(FormatRecord& r) {
-    const bool mono = r.imageMode == plugInModeGrayScale || r.imageMode == plugInModeGray32;
-    const bool rgb = r.imageMode == plugInModeRGBColor || r.imageMode == plugInModeRGB96;
-    if (r.depth != 32 || (!mono && !rgb) || r.planes != (mono ? 1 : 3))
-        throw std::runtime_error("Save requires 32-bit grayscale or RGB without alpha channels");
+    const bool mono = r.imageMode == plugInModeGrayScale || r.imageMode == plugInModeGray16 || r.imageMode == plugInModeGray32;
+    const bool rgb = r.imageMode == plugInModeRGBColor || r.imageMode == plugInModeRGB48 || r.imageMode == plugInModeRGB96;
+    if ((r.depth != 16 && r.depth != 32) || (!mono && !rgb) || r.planes != (mono ? 1 : 3))
+        throw std::runtime_error("Save requires 16-bit or 32-bit grayscale or RGB without alpha channels");
 }
 
 struct WriteContext { FormatRecord* record; bool cancelled = false; };
@@ -184,10 +297,18 @@ void writeStart(FormatRecord& r) {
     const size_t count = static_cast<size_t>(w) * h * r.planes;
     if (count > std::numeric_limits<size_t>::max() / sizeof(float)) throw std::bad_alloc();
     std::vector<float> samples(count);
+    std::vector<uint16_t> integerRow(r.depth == 16 ? w : 0);
     for (int16 p = 0; p < r.planes; ++p) {
         for (int32 y = 0; y < h; ++y) {
-            row(r, w, y, p, samples.data() + (static_cast<size_t>(p) * h + y) * w);
+            auto* destination = samples.data() + (static_cast<size_t>(p) * h + y) * w;
+            row(r, w, y, p, r.depth == 16 ? static_cast<void*>(integerRow.data()) : destination);
             advance(r);
+            if (r.depth == 16) {
+                for (int32 x = 0; x < w; ++x) {
+                    if (integerRow[x] > 32768) throw std::runtime_error("Photoshop supplied a 16-bit sample outside 0..32768");
+                    destination[x] = static_cast<float>(integerRow[x]) / 32768.0f;
+                }
+            }
             if (r.progressProc) r.progressProc(p * h + y + 1, r.planes * h);
         }
     }
@@ -196,7 +317,9 @@ void writeStart(FormatRecord& r) {
     file.seek(0);
     WriteContext context{&r};
     char error[1024]{};
-    if (seiza_encode(kFormat, w, h, r.planes, samples.data(), count, writeBytes, &context, error, sizeof(error))) {
+    SeizaOptions options;
+    loadOptions(r, options);
+    if (seiza_encode_depth(kFormat, options.writeDepth, w, h, r.planes, samples.data(), count, writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);
     }
@@ -231,10 +354,10 @@ SEIZA_EXPORT void MACPASCAL PluginMain(
     *result = noErr;
     if (selector == formatSelectorAbout) {
 #ifdef _WIN32
-        MessageBoxW(nullptr, L"FITS and XISF file support powered by seiza-fits and seiza-xisf.\nVersion 0.1.0", L"Seiza Astronomy Formats", MB_OK);
+        MessageBoxW(nullptr, L"FITS and XISF file support powered by seiza-fits and seiza-xisf.\nVersion 0.2.0", L"Seiza Astronomy Formats", MB_OK);
 #else
         CFUserNotificationDisplayNotice(0, kCFUserNotificationNoteAlertLevel, nullptr, nullptr, nullptr,
-            CFSTR("Seiza Astronomy Formats"), CFSTR("FITS and XISF support powered by seiza-fits and seiza-xisf. Version 0.1.0"), CFSTR("OK"));
+            CFSTR("Seiza Astronomy Formats"), CFSTR("FITS and XISF support powered by seiza-fits and seiza-xisf. Version 0.2.0"), CFSTR("OK"));
 #endif
         return;
     }
@@ -254,7 +377,7 @@ SEIZA_EXPORT void MACPASCAL PluginMain(
         case formatSelectorReadStart: readStart(r, *persistent); break;
         case formatSelectorReadContinue: readContinue(r, *persistent); break;
         case formatSelectorReadFinish: cleanup(r, *persistent); break;
-        case formatSelectorOptionsStart: validateWrite(r); r.data = nullptr; break;
+        case formatSelectorOptionsStart: validateWrite(r); writeOptions(r); break;
         case formatSelectorEstimateStart: {
             validateWrite(r);
             const auto w = r.HostSupports32BitCoordinates ? r.imageSize32.h : r.imageSize.h;

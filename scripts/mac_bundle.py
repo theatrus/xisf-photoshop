@@ -17,8 +17,8 @@ def make_bundle(destination: Path, format_name: str) -> Path:
         "CFBundleName": name,
         "CFBundlePackageType": "8BIF",
         "CFBundleSignature": "8BIM",
-        "CFBundleVersion": "0.1.0",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleVersion": "0.2.0",
+        "CFBundleShortVersionString": "0.2.0",
         "LSMinimumSystemVersion": "11.0",
     }
     with (contents / "Info.plist").open("wb") as file:
@@ -26,16 +26,16 @@ def make_bundle(destination: Path, format_name: str) -> Path:
     extensions = ["fits", "fit ", "fts "] if format_name == "FITS" else ["xisf"]
     pipl = {
         "Kind": "Format", "Name": "Seiza " + format_name, "Version": 1, "SubVersion": 0,
-        "ComponentVersionShortNum": 0, "ComponentVersionMinorRevNum": 1,
+        "ComponentVersionShortNum": 0, "ComponentVersionMinorRevNum": 2,
         "ComponentVersionDotRevNum": 0, "ComponentName": name,
         "CodeMacARM64": "PluginMain", "CodeMacIntel64": "PluginMain",
         "SupportsPOSIXIO": True,
         "SupportedModes": {mode: mode in ("GrayScale", "RGBColor") for mode in (
             "Bitmap", "GrayScale", "IndexedColor", "RGBColor", "CMYKColor", "HSLColor",
             "HSBColor", "Multichannel", "Duotone", "LABColor")},
-        "EnableInfo": "in (PSHOP_ImageMode, Gray32Mode, RGB96Mode)",
+        "EnableInfo": "in (PSHOP_ImageMode, Gray16Mode, RGB48Mode, Gray32Mode, RGB96Mode)",
         "PlugInMaxSize": [300000, 300000], "FormatMaxSize": [32767, 32767],
-        "FormatMaxChannels": [0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+        "FormatMaxChannels": [0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 3, 1],
         "FmtFileType": {"Type": format_name, "Creator": "8BIM"},
         "ReadExtensions": extensions, "WriteExtensions": extensions,
         "FilteredExtensions": extensions,

@@ -42,6 +42,8 @@ try {
     if ($converter.Count -eq 0) { throw 'SDK cnvtpipl.exe resource compiler was not found.' }
     $converterPath = $converter[0].FullName
     New-Item -ItemType Directory -Force build\native,dist | Out-Null
+    & rc.exe /nologo /fobuild\native\options.res native\options.rc
+    if ($LASTEXITCODE) { throw 'Windows options dialog compilation failed' }
     foreach ($format in @(@{Name='FITS'; Id=1}, @{Name='XISF'; Id=2})) {
         $name = 'Seiza' + $format.Name
         $base = Join-Path $projectRoot "build\native\$name"
@@ -52,7 +54,7 @@ try {
         if ($LASTEXITCODE) { throw "PiPL compilation failed: $name" }
         & rc.exe /nologo "/fo$base.res" "$base.rc"
         if ($LASTEXITCODE) { throw "Windows resource compilation failed: $name" }
-        & cl.exe /nologo /std:c++17 /EHsc /O2 /MD /W4 /LD /DWIN32=1 /DMSWindows=1 "/DSEIZA_FORMAT=$($format.Id)" @includeArgs native\plugin.cpp "/Fo$base.obj" /link "$base.res" $rustLib ws2_32.lib userenv.lib bcrypt.lib ntdll.lib advapi32.lib user32.lib "/OUT:dist\$name.8bi" "/IMPLIB:$base.lib"
+        & cl.exe /nologo /std:c++17 /EHsc /O2 /MD /W4 /LD /DWIN32=1 /DMSWindows=1 "/DSEIZA_FORMAT=$($format.Id)" @includeArgs native\plugin.cpp "/Fo$base.obj" /link "$base.res" build\native\options.res $rustLib ws2_32.lib userenv.lib bcrypt.lib ntdll.lib advapi32.lib user32.lib "/OUT:dist\$name.8bi" "/IMPLIB:$base.lib"
         if ($LASTEXITCODE) { throw "Plug-in compilation failed: $name" }
     }
     & cl.exe /nologo /std:c++17 /EHsc /O2 /MD /DWIN32=1 /DMSWindows=1 @includeArgs native\host_smoke.cpp /Fobuild\native\host_smoke.obj /Febuild\native\host_smoke.exe /link $rustLib ws2_32.lib userenv.lib bcrypt.lib ntdll.lib advapi32.lib

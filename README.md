@@ -8,7 +8,7 @@ Windows, `.plugin` on macOS), with entries in Photoshop's Open and Save dialogs.
 
 **Development status:** Initial test builds for Windows x64 and universal macOS
 (Intel and Apple silicon), compiled against Adobe's 2026 SDK v2. CI gates plugin
-downloads on nine Rust tests, a compiled C++/Rust ABI test, and a host harness
+downloads on twelve Rust tests, a compiled C++/Rust ABI test, and a host harness
 that loads both plugins and exercises Adobe's `FormatRecord` interface.
 Live Photoshop validation remains pending. macOS bundles are ad-hoc signed;
 Developer ID signing and notarization are not configured. Plaintext SDKs are
@@ -16,24 +16,36 @@ not redistributed.
 
 ## Supported image workflow
 
-- Open `.fits`, `.fit`, `.fts`, and `.xisf` into **32 Bits/Channel** grayscale or RGB.
-- Save 32-bit grayscale/RGB composite pixels as Float32 FITS or XISF. Convert
-  8/16-bit documents via **Image → Mode → 32 Bits/Channel** before saving.
-- Floating-point inputs retain their physical values, including negative values
-  and values above 1. No histogram normalization, automatic stretch, clipping,
-  debayering, or gamma conversion is applied.
+- Open `.fits`, `.fit`, `.fts`, and `.xisf` into grayscale or RGB. The import
+  dialog offers **32-bit float** (default) or **16-bit integer**.
+- 32-bit import retains decoded floating-point values, including negatives and
+  values above 1, without rescaling or clipping.
+- 16-bit import linearly rescales the global image minimum/maximum to Photoshop's
+  internal **0..32768** range and rounds to integers. All RGB channels share one
+  range; there is no per-channel stretching or clipping. Constant images become
+  zero. The dialog shows the source range and warns that original absolute scale
+  and precision will be lost. No gamma conversion or debayering is applied.
+- Save **16- or 32-bit** grayscale/RGB documents as either Float32 (default) or
+  UInt16 FITS/XISF using the save-options dialog. Eight-bit documents must first
+  be converted via **Image → Mode → 16 Bits/Channel** or **32 Bits/Channel**.
+- Float32 output preserves the current document's sample values; it does
+  not restore the original scale or precision after a 16-bit import. UInt16
+  output rounds 0..1 to 0..65535. Exporting a 32-bit document as UInt16 clips
+  negative/HDR values, with this loss stated in the save dialog. Import rescaling
+  already puts 16-bit documents into the valid range.
 - Unsigned integer camera data uses a fixed full-scale divisor: 255 for 8-bit,
   65535 for 16-bit, and 4294967295 for XISF UInt32. Signed FITS integers and
   nonstandard FITS scaling retain physical units. FITS `BZERO`/`BSCALE` are applied
-  once. Saving integer inputs consequently produces normalized Float32 pixels,
-  not the original integer storage or ADU scale.
+  once. Float32 output uses normalized pixels for unsigned camera data, not the
+  original ADU scale; a 16-bit import additionally rescales to the image range.
 - XISF attached mono/RGB data supports the sample types, byte order, checksums,
   zlib, LZ4/LZ4HC, zstd, and byte shuffling provided by `seiza-xisf`.
 - Float64/Int32/UInt32 inputs can lose precision when converted to Photoshop f32.
   Images containing NaN or infinite samples are rejected with an error.
 
 Linear astro images may appear very dark. Apply your desired stretch in
-Photoshop; the importer does not alter it for display. The plug-ins do not embed
+Photoshop; 32-bit import does not alter it for display, while 16-bit import applies
+only the linear min/max rescaling described above. The plug-ins do not embed
 an ICC profile, so color appearance depends on Photoshop's color settings.
 
 ## Current limits
@@ -47,7 +59,13 @@ an ICC profile, so color appearance depends on Photoshop's color settings.
 - Save stores one flattened image. Layers, alpha channels, masks, WCS/acquisition
   headers, XISF properties, ICC profiles, and other metadata are not round-tripped.
   Keep an original scientific image and use PSD/PSB for layered Photoshop work.
-- XISF output is uncompressed Float32. FITS output uses `BITPIX=-32`.
+- XISF output is uncompressed Float32 or UInt16. FITS output uses `BITPIX=-32`
+  for Float32, or `BITPIX=16`, `BZERO=32768`, `BSCALE=1` for unsigned integer data.
+- Revert reuses the import choice. Ordinary Save reuses the output choice when
+  Photoshop skips its options dialog; use Save As to select another type.
+  Dialog-suppressed automation uses remembered document options, otherwise
+  defaults to Float32. Custom choices are not recorded in Actions descriptors yet.
+  Preview reads are always Float32 and never display a dialog.
 - The first implementation retains the encoded input and decoded image in memory
   while opening; saving retains a planar f32 image. It is not an out-of-core codec.
   Cancellation is checked during host I/O and pixel transfer; upstream decoding
@@ -96,10 +114,12 @@ Generate known test images:
 cargo run --locked --example make_fixtures
 ```
 
-1. Open all four images in `build/fixtures`. Verify 128×96 dimensions, 32-bit mode,
-   and grayscale/RGB channels. Mono is a left-to-right ramp. RGB has red increasing
+1. Open all four images in `build/fixtures`. Try both import depths and verify
+   128×96 dimensions and grayscale/RGB channels. Mono is a left-to-right ramp. RGB has red increasing
    left-to-right, green increasing top-to-bottom, and blue only in the upper-left.
-2. Save copies using each Seiza format, reopen them, and verify the same pixels.
+2. Save copies using each Seiza format and output depth. Float32 retains document
+   samples; UInt16 rounds them. Reopen as Float32 to inspect saved values without
+   applying another import rescaling. Test Revert retains the document depth.
 3. Repeat with a real compressed XISF, unsigned 16-bit FITS, and a Float32 HDR file.
 4. Cancel a large import/export; confirm Photoshop remains usable and the original
    source file is intact. Reopen a valid image after a malformed-file error.
@@ -133,6 +153,11 @@ and restart. The SDK and resource generators are never included in the bundles.
 ## Architecture and tests
 
 `src/lib.rs` owns sample semantics; `src/ffi.rs` exposes a panic-contained C ABI.
+The pinned Seiza crates provide readers and Float32 writers. `src/integer_writer.rs`
+adds minimal UInt16 writers until upstream offers that sample type; tests verify
+all 65536 integer codes, FITS scaling/endianness, XISF sample type, and round trips
+through the Seiza readers. Import rescaling and Photoshop's 0..32768 representation
+are handled by the native adapter.
 `native/plugin.cpp` uses Adobe's `FormatRecord` directly and transfers planar rows
 through `advanceState`. Two PiPL resources register separate formats so Save
 chooses the requested encoder independently of the output filename.

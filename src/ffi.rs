@@ -132,13 +132,43 @@ pub unsafe extern "C" fn seiza_encode(
     error: *mut c_char,
     capacity: usize,
 ) -> i32 {
+    unsafe {
+        seiza_encode_depth(
+            format, 32, width, height, planes, pixels, samples, callback, context, error, capacity,
+        )
+    }
+}
+
+/// # Safety
+/// Same contract as seiza_encode. depth is 32 (Float32) or 16 (UInt16).
+/// UInt16 rounds normalized samples to 0..65535 and clips outside 0..1.
+/// The caller must obtain the user's consent before lossy conversion.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_encode_depth(
+    format: u32,
+    depth: u32,
+    width: u32,
+    height: u32,
+    planes: u32,
+    pixels: *const f32,
+    samples: usize,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
     boundary(error, capacity, || {
         let count = crate::sample_count(width as usize, height as usize, planes as usize)?;
         if pixels.is_null() || samples != count {
             return Err("Invalid pixel buffer".into());
         }
         let callback = callback.ok_or("Missing write callback")?;
-        crate::encode_pixels(
+        let encode = match depth {
+            32 => crate::encode_pixels,
+            16 => crate::encode_u16_pixels,
+            _ => return Err("Output depth must be 16 or 32".into()),
+        };
+        encode(
             Format::try_from(format)?,
             width as usize,
             height as usize,

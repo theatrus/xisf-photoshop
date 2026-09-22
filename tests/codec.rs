@@ -1,5 +1,5 @@
 use seiza_photoshop::ffi::*;
-use seiza_photoshop::{Format, Image, decode, encode, sample_count};
+use seiza_photoshop::{Format, Image, decode, encode, encode_u16_pixels, sample_count};
 use std::{
     ffi::{CStr, c_char, c_void},
     ptr,
@@ -345,5 +345,90 @@ fn ffi_ownership_callback_errors_and_null_arguments() {
             ),
             1
         );
+    }
+}
+
+#[test]
+fn uint16_output_preserves_every_integer_code_and_standard_storage() {
+    let pixels: Vec<_> = (0..=65535).map(|v| v as f32 / 65535.0).collect();
+    for format in [Format::Fits, Format::Xisf] {
+        let mut bytes = Vec::new();
+        encode_u16_pixels(format, 256, 256, 1, &pixels, &mut bytes).unwrap();
+        let offset = match format {
+            Format::Fits => {
+                let image = seiza_fits::FitsImage::from_bytes(&bytes).unwrap();
+                assert_eq!(image.header_f64("BITPIX"), Some(16.0));
+                assert_eq!(image.header_f64("BZERO"), Some(32768.0));
+                assert_eq!(image.header_f64("BSCALE"), Some(1.0));
+                assert_eq!(bytes.len() % 2880, 0);
+                2880
+            }
+            Format::Xisf => {
+                let image = seiza_xisf::read_image_from_bytes(&bytes, 0).unwrap();
+                assert_eq!(image.info.sample_format, seiza_xisf::SampleFormat::UInt16);
+                4096
+            }
+        };
+        // Check every on-disk code independently of the reader's normalization.
+        for value in 0..=65535u16 {
+            let i = offset + usize::from(value) * 2;
+            let pair = [bytes[i], bytes[i + 1]];
+            let stored = match format {
+                Format::Fits => u16::from_be_bytes(pair) ^ 0x8000,
+                Format::Xisf => u16::from_le_bytes(pair),
+            };
+            assert_eq!(stored, value);
+        }
+        assert_eq!(decode(format, &bytes).unwrap().pixels, pixels);
+    }
+}
+
+#[test]
+fn uint16_output_rounds_clips_and_preserves_planar_rgb() {
+    let pixels = [-2.0, 0.0, 0.25, 0.5, 1.0, 2.0];
+    let codes = [0u16, 0, 16384, 32768, 65535, 65535];
+    for format in [Format::Fits, Format::Xisf] {
+        let mut bytes = Vec::new();
+        encode_u16_pixels(format, 2, 1, 3, &pixels, &mut bytes).unwrap();
+        let image = decode(format, &bytes).unwrap();
+        assert_eq!((image.width, image.height, image.planes), (2, 1, 3));
+        assert_eq!(image.pixels, codes.map(|v| f32::from(v) / 65535.0));
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut output = Vec::new();
+            assert!(encode_u16_pixels(format, 1, 1, 1, &[invalid], &mut output).is_err());
+            assert!(output.is_empty());
+        }
+        let mut output = Vec::new();
+        assert!(encode_u16_pixels(format, 2, 1, 3, &[0.0], &mut output).is_err());
+        assert!(output.is_empty());
+    }
+}
+
+#[test]
+fn uint16_ffi_propagates_failed_writes_and_rejects_unknown_depth() {
+    let pixels = [0.5f32];
+    for format in [1, 2] {
+        for depth in [16, 8] {
+            let mut error = [0 as c_char; 128];
+            unsafe {
+                assert_eq!(
+                    seiza_encode_depth(
+                        format,
+                        depth,
+                        1,
+                        1,
+                        1,
+                        pixels.as_ptr(),
+                        1,
+                        Some(fail),
+                        ptr::null_mut(),
+                        error.as_mut_ptr(),
+                        error.len()
+                    ),
+                    1
+                );
+                assert!(!CStr::from_ptr(error.as_ptr()).to_bytes().is_empty());
+            }
+        }
     }
 }

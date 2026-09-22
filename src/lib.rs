@@ -3,6 +3,9 @@
 //! their fixed full-scale range. There is no histogram normalization or stretch.
 
 pub mod ffi;
+mod integer_writer;
+
+pub use integer_writer::encode_u16_pixels;
 
 use seiza_fits::{F32ImageData, FitsImage, HeaderValue, Pixels};
 use std::io::Write;

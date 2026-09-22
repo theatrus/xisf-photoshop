@@ -15,14 +15,36 @@
 #include "PIFormat.h"
 #include "seiza_codec.h"
 #include "host_file.h"
+#include "options.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 using Entry = void (*)(int16, FormatRecord*, intptr_t*, int16*);
+struct TestHandle { std::vector<char> bytes; };
+static Handle MACPASCAL newHandle(int32 size) {
+    return reinterpret_cast<Handle>(new TestHandle{std::vector<char>(size)});
+}
+static void MACPASCAL disposeHandle(Handle handle) { delete reinterpret_cast<TestHandle*>(handle); }
+static int32 MACPASCAL handleSize(Handle handle) {
+    return static_cast<int32>(reinterpret_cast<TestHandle*>(handle)->bytes.size());
+}
+static Ptr MACPASCAL lockHandle(Handle handle, Boolean) {
+    return reinterpret_cast<Ptr>(reinterpret_cast<TestHandle*>(handle)->bytes.data());
+}
+static void MACPASCAL unlockHandle(Handle) {}
+static HandleProcs handles = [] {
+    HandleProcs h{};
+    h.handleProcsVersion = 1; h.numHandleProcs = kCurrentHandleProcsCount;
+    h.newProc = newHandle; h.disposeProc = disposeHandle; h.getSizeProc = handleSize;
+    h.lockProc = lockHandle; h.unlockProc = unlockHandle;
+    return h;
+}();
 struct Host {
     FormatRecord record{};
     intptr_t state = 0;
@@ -32,6 +54,8 @@ struct Host {
     bool writing = false;
     int transfers = 0;
     int cancelAfter = -1;
+    PIDescriptorParameters descriptor{};
+    ~Host() { if (record.revertInfo) disposeHandle(record.revertInfo); }
 };
 static Host* current = nullptr;
 static void require(bool value, const char* message) {
@@ -43,14 +67,26 @@ static Boolean MACPASCAL abortProc() {
 static OSErr MACPASCAL advanceProc() {
     auto& h = *current;
     auto& r = h.record;
-    require(r.depth == 32 && r.data && r.colBytes == 4, "Invalid host pixel transfer");
+    require((r.depth == 32 || r.depth == 16) && r.data && r.colBytes == r.depth / 8, "Invalid host pixel transfer");
+    require(r.rowBytes == r.imageSize32.h * r.colBytes, "Incorrect row stride");
     require(r.theRect32.left == 0 && r.theRect32.right == r.imageSize32.h &&
         r.theRect32.bottom == r.theRect32.top + 1 && r.loPlane == r.hiPlane, "Invalid rectangle/plane");
     const size_t offset = (static_cast<size_t>(r.loPlane) * r.imageSize32.v + r.theRect32.top) * r.imageSize32.h;
     require(offset + r.imageSize32.h <= h.pixels.size(), "Transfer outside image");
-    auto* samples = static_cast<float*>(r.data);
-    if (h.writing) std::copy_n(h.pixels.data() + offset, r.imageSize32.h, samples);
-    else std::copy_n(samples, r.imageSize32.h, h.pixels.data() + offset);
+    if (r.depth == 32) {
+        auto* samples = static_cast<float*>(r.data);
+        if (h.writing) std::copy_n(h.pixels.data() + offset, r.imageSize32.h, samples);
+        else std::copy_n(samples, r.imageSize32.h, h.pixels.data() + offset);
+    } else {
+        auto* samples = static_cast<uint16_t*>(r.data);
+        for (int32 x = 0; x < r.imageSize32.h; ++x) {
+            if (h.writing) samples[x] = static_cast<uint16_t>(std::lround(h.pixels[offset + x] * 32768.0));
+            else {
+                require(r.maxValue == 32768 && samples[x] <= 32768, "Wrong Photoshop 16-bit range");
+                h.pixels[offset + x] = samples[x] / 32768.0f;
+            }
+        }
+    }
     ++h.transfers;
     return noErr;
 }
@@ -89,6 +125,16 @@ static void initialize(Host& h, File file) {
     h.record.abortProc = abortProc;
     h.record.advanceState = advanceProc;
     h.record.errorString = &h.error;
+    h.descriptor.playInfo = plugInDialogSilent;
+    h.record.descriptorParameters = &h.descriptor;
+    h.record.handleProcs = &handles;
+}
+static void setOptions(Host& h, uint32_t readDepth, uint32_t writeDepth) {
+    SeizaOptions options;
+    options.readDepth = readDepth; options.writeDepth = writeDepth;
+    if (h.record.revertInfo) disposeHandle(h.record.revertInfo);
+    h.record.revertInfo = newHandle(sizeof(options));
+    std::memcpy(lockHandle(h.record.revertInfo, false), &options, sizeof(options));
 }
 static void closeFile(File file) {
 #ifdef _WIN32
@@ -97,16 +143,20 @@ static void closeFile(File file) {
     close(file);
 #endif
 }
-static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes) {
+static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
+    uint32_t readDepth, uint32_t writeDepth, bool interactive = false) {
 #ifdef _WIN32
     auto entry = reinterpret_cast<Entry>(GetProcAddress(module, "PluginMain"));
     require(FindResourceW(module, MAKEINTRESOURCEW(16000), L"PiPL") != nullptr, "PiPL resource missing");
+    require(FindResourceW(module, MAKEINTRESOURCEW(SEIZA_OPTIONS_DIALOG), MAKEINTRESOURCEW(5)) != nullptr, "Options dialog resource missing");
 #else
     auto entry = reinterpret_cast<Entry>(dlsym(module, "PluginMain"));
 #endif
     require(entry != nullptr, "PluginMain export is missing");
     std::vector<float> expected(static_cast<size_t>(width) * height * planes);
     for (size_t i = 0; i < expected.size(); ++i) expected[i] = static_cast<float>(i % 37) / 8.0f - 0.25f;
+    if (width == 5 && planes == 1) expected = {-std::numeric_limits<float>::max(), -1.0f, 0.0f, 1.0f, std::numeric_limits<float>::max()};
+    if (width == 4 && planes == 1) expected = {1.0e-40f, 2.0e-40f, 4.0e-40f, 8.0e-40f};
     std::vector<uint8_t> encoded;
     char error[1024]{};
     require(seiza_encode(format, width, height, planes, expected.data(), expected.size(), append, &encoded, error, sizeof(error)) == 0, error);
@@ -123,6 +173,8 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
 #endif
     try {
         Host reader{}; reader.entry = entry; initialize(reader, file);
+        if (interactive) reader.descriptor.playInfo = plugInDialogDisplay;
+        else setOptions(reader, readDepth, 32);
         HostFile io(reader.record);
         require(io.write(encoded.data(), encoded.size()) == encoded.size(), "Fixture write failed");
         io.seek(7);
@@ -131,18 +183,32 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         success(reader, formatSelectorReadPrepare);
         success(reader, formatSelectorReadStart);
         require(reader.record.imageSize32.h == width && reader.record.imageSize32.v == height &&
-            reader.record.planes == planes && reader.record.depth == 32, "Incorrect image description");
+            reader.record.planes == planes && reader.record.depth == readDepth, "Incorrect image description");
         reader.pixels.resize(expected.size());
+        if (readDepth == 16) {
+            const double low = *std::min_element(expected.begin(), expected.end());
+            const double high = *std::max_element(expected.begin(), expected.end());
+            for (auto& value : expected)
+                value = high == low ? 0.0f : static_cast<float>(std::round(
+                    ((static_cast<double>(value) - low) / (high - low)) * 32768.0) / 32768.0);
+        }
         success(reader, formatSelectorReadContinue);
         require(reader.pixels == expected && reader.record.data == nullptr, "Host received incorrect pixels");
         success(reader, formatSelectorReadFinish);
         require(reader.state == 0, "Read state leaked");
+        // Revert retains the chosen Photoshop depth, even with dialogs disabled.
+        success(reader, formatSelectorReadStart);
+        require(reader.record.depth == readDepth, "Revert forgot the chosen depth");
+        success(reader, formatSelectorReadFinish);
 
         Host writer{}; writer.entry = entry; initialize(writer, file);
+        setOptions(writer, readDepth, writeDepth);
+        if (interactive) writer.descriptor.playInfo = plugInDialogDisplay;
         writer.writing = true; writer.pixels = expected;
         writer.record.imageSize32.h = width; writer.record.imageSize32.v = height;
-        writer.record.planes = static_cast<int16>(planes); writer.record.depth = 32;
-        writer.record.imageMode = planes == 1 ? plugInModeGrayScale : plugInModeRGBColor;
+        writer.record.planes = static_cast<int16>(planes); writer.record.depth = static_cast<int16>(readDepth);
+        writer.record.imageMode = readDepth == 16 ? (planes == 1 ? plugInModeGray16 : plugInModeRGB48) :
+            (planes == 1 ? plugInModeGray32 : plugInModeRGB96);
         success(writer, formatSelectorOptionsStart);
         success(writer, formatSelectorEstimateStart);
         success(writer, formatSelectorWritePrepare);
@@ -154,11 +220,14 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         SeizaImage* decoded = nullptr;
         require(seiza_decode(format, encoded.data(), encoded.size(), &decoded, error, sizeof(error)) == 0, error);
         SeizaImageView view{}; seiza_image_view(decoded, &view);
-        const bool equal = view.samples == expected.size() && std::equal(expected.begin(), expected.end(), view.pixels);
+        auto savedExpected = expected;
+        if (writeDepth == 16) for (auto& value : savedExpected)
+            value = static_cast<float>(std::round(std::clamp(static_cast<double>(value), 0.0, 1.0) * 65535.0)) / 65535.0f;
+        const bool equal = view.samples == expected.size() && std::equal(savedExpected.begin(), savedExpected.end(), view.pixels);
         seiza_image_free(decoded);
         require(equal, "Saved pixels changed across host round trip");
-        writer.record.depth = 16;
-        require(call(writer, formatSelectorOptionsStart) != noErr, "16-bit save was not rejected");
+        writer.record.depth = 8;
+        require(call(writer, formatSelectorOptionsStart) != noErr, "8-bit save was not rejected");
 
         Host cancelled{}; cancelled.entry = entry; initialize(cancelled, file);
         success(cancelled, formatSelectorReadStart);
@@ -175,8 +244,9 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         closeFile(file);
     } catch (...) { closeFile(file); throw; }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
+        const bool interactive = argc == 2 && std::strcmp(argv[1], "--interactive") == 0;
         for (uint32_t format : {1u, 2u}) {
 #ifdef _WIN32
             Module module = LoadLibraryW(format == 1 ? L"dist\\SeizaFITS.8bi" : L"dist\\SeizaXISF.8bi");
@@ -186,15 +256,21 @@ int main() {
             if (!module) std::fprintf(stderr, "%s\n", dlerror());
 #endif
             require(module != nullptr, "Cannot load plug-in");
-            run(module, format, 3, 2, 1);
-            run(module, format, 3, 2, 3);
-            run(module, format, 32768, 1, 1);
+            if (interactive) run(module, format, 3, 2, 3, 16, 16, true);
+            else for (uint32_t readDepth : {16u, 32u}) for (uint32_t writeDepth : {16u, 32u}) {
+                run(module, format, 1, 1, 1, readDepth, writeDepth);
+                run(module, format, 4, 1, 1, readDepth, writeDepth);
+                run(module, format, 5, 1, 1, readDepth, writeDepth);
+                run(module, format, 3, 2, 1, readDepth, writeDepth);
+                run(module, format, 3, 2, 3, readDepth, writeDepth);
+                run(module, format, 32768, 1, 1, readDepth, writeDepth);
+            }
 #ifdef _WIN32
             FreeLibrary(module);
 #else
             dlclose(module);
 #endif
         }
-        std::puts("Adobe SDK host harness: both plug-ins passed mono/RGB round trips, large coordinates, cancellation, invalid modes and malformed input.");
+        std::puts("Adobe SDK host harness: both plug-ins passed 16/32-bit mono/RGB import/export, rescaling, constant images, revert, large coordinates, cancellation, invalid modes and malformed input.");
     } catch (const std::exception& e) { std::fprintf(stderr, "%s\n", e.what()); return 1; }
 }

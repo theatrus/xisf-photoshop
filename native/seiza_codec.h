@@ -23,6 +23,11 @@ typedef int32_t (*SeizaWriteCallback)(void*, const uint8_t*, size_t);
 int32_t seiza_encode(uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
     const float* pixels, size_t samples, SeizaWriteCallback callback, void* context,
     char* error, size_t capacity);
+// depth: 32=Float32 or 16=UInt16. UInt16 clips to [0,1] and rounds to [0,65535].
+// Caller must obtain consent to lose precision/range before selecting depth 16.
+int32_t seiza_encode_depth(uint32_t format, uint32_t depth, uint32_t width, uint32_t height,
+    uint32_t planes, const float* pixels, size_t samples, SeizaWriteCallback callback,
+    void* context, char* error, size_t capacity);
 #ifdef __cplusplus
 }
 #endif

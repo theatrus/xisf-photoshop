@@ -20,7 +20,7 @@ resource 'PiPL' (16000, FORMAT_NAME, purgeable) {
             noBitmap, doesSupportGrayScale, noIndexedColor, doesSupportRGBColor,
             noCMYKColor, noHSLColor, noHSBColor, noMultichannel, noDuotone, noLABColor
         },
-        EnableInfo { "in (PSHOP_ImageMode, Gray32Mode, RGB96Mode)" },
+        EnableInfo { "in (PSHOP_ImageMode, Gray16Mode, RGB48Mode, Gray32Mode, RGB96Mode)" },
         FmtFileType { FILE_TYPE, '8BIM' },
 #if SEIZA_FORMAT == 1
         ReadExtensions { { 'fits', 'fit ', 'fts ' } },
@@ -35,7 +35,7 @@ resource 'PiPL' (16000, FORMAT_NAME, purgeable) {
             fmtCanWriteIfRead, fmtCannotWriteTransparency, fmtCannotCreateThumbnail },
         PlugInMaxSize { 300000, 300000 },
         FormatMaxSize { { 32767, 32767 } },
-        FormatMaxChannels { { 0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0 } },
+        FormatMaxChannels { { 0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 3, 1 } },
         FormatICCFlags { iccCannotEmbedGray, iccCannotEmbedIndexed,
             iccCannotEmbedRGB, iccCannotEmbedCMYK }
     }
