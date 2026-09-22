@@ -164,7 +164,7 @@ jobs:
           foreach ($name in 'SeizaFITS.8bi', 'SeizaXISF.8bi') {
             $sig = Get-AuthenticodeSignature -LiteralPath "dist/$name"
             if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'StackFoundry LLC') {
-              throw "Invalid signature on $name: $($sig.Status) $($sig.SignerCertificate.Subject)"
+              throw "Invalid signature on ${name}: $($sig.Status) $($sig.SignerCertificate.Subject)"
             }
           }
           Remove-Item -LiteralPath dist/Seiza-Photoshop-Windows-x64.zip -ErrorAction Ignore
