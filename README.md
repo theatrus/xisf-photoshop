@@ -7,7 +7,29 @@ Native Photoshop file-format plug-ins backed by `seiza-fits 0.2.2` and
 **SeizaFITS** and **SeizaXISF** (`.8bi` on
 Windows, `.plugin` on macOS), with entries in Photoshop's Open and Save dialogs.
 
-**Development status:** Initial test builds for Windows x64 and universal macOS
+## Download and install
+
+Get the plugins from [GitHub Releases](https://github.com/theatrus/xisf-photoshop/releases/latest).
+Release downloads are public, require no GitHub login, and do not expire like CI artifacts.
+Both FITS and XISF are included in every package.
+
+| Platform | v0.4.0 download | Installation |
+| --- | --- | --- |
+| Windows x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-Windows-x64-Setup-0.4.0.exe) | Close Photoshop, run setup, approve the administrator prompt, then restart Photoshop. |
+| Windows x64 | [Portable plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-Windows-x64.zip) | Close Photoshop, extract both `.8bi` files into its `Plug-ins/Seiza` folder, then restart. |
+| macOS Intel / Apple silicon | [Universal plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-macOS-universal.zip) | Extract on your Mac, close Photoshop, copy both `.plugin` bundles from the `macos` folder into Photoshop's `Plug-ins` folder, then restart. |
+
+The Windows installer handles updates and removal of detected older manual copies;
+see [Windows installation details](#optional-windows-installer). It is currently
+unsigned, so Windows may show an unknown-publisher or SmartScreen prompt.
+The macOS bundles are Developer ID signed, notarized, and stapled. Download and
+extract the original ZIP on macOS to preserve bundle permissions and signatures.
+Each release download has a matching `.sha256` file on the release page.
+
+Configure defaults through **Help → About Plug-In → FITS/XISF** on Windows or
+**Photoshop → About Plug-In → FITS/XISF** on macOS. See [plugin settings](#plugin-settings-help-menu).
+
+**Development status:** Initial releases for Windows x64 and universal macOS
 (Intel and Apple silicon), compiled against Adobe's 2026 SDK v2. CI gates plugin
 downloads on seventeen Rust tests, a compiled C++/Rust ABI test, and a host harness
 that loads both plugins and exercises Adobe's `FormatRecord` interface.
@@ -198,9 +220,9 @@ they do not install plugins into Photoshop or require closing your real Photosho
 
 ### Optional Windows installer
 
-Download the `Seiza-Photoshop-Windows-x64-Installer` artifact from a successful
-[GitHub Actions build](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml),
-extract it, close Photoshop, and run `Seiza-Photoshop-Windows-x64-Setup-<version>.exe`.
+Download `Seiza-Photoshop-Windows-x64-Setup-<version>.exe` from the
+[latest release](https://github.com/theatrus/xisf-photoshop/releases/latest),
+close Photoshop, and run it.
 Approve the Windows administrator prompt, then restart Photoshop after setup.
 The installer currently has no Windows code-signing certificate, so Windows may
 show an unknown-publisher or SmartScreen prompt. Windows 10/11 x64 is supported;
@@ -230,7 +252,8 @@ Configure the plugins through **Help → About Plug-In → FITS/XISF** as descri
 
 ### Manual Windows installation (ZIP)
 
-The original ZIP remains available. After extracting it or completing a native
+The plugin ZIP is also available from [Releases](https://github.com/theatrus/xisf-photoshop/releases/latest).
+After extracting it or completing a native
 build, close Photoshop and copy both `.8bi` files into its `Plug-ins/Seiza` folder.
 From a source checkout, you can also use:
 
@@ -320,6 +343,11 @@ Both platform build scripts run that harness before packaging.
 
 ## CI and downloads
 
+Use [GitHub Releases](https://github.com/theatrus/xisf-photoshop/releases/latest)
+for published versions, including the optional Windows installer, Windows plugin
+ZIP, signed universal macOS plugin ZIP, and SHA-256 files. Release assets are
+the original validated CI packages; the signed Mac ZIP is not repacked.
+
 [GitHub Actions](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
 tests the Rust backend on Windows and macOS for pushes and pull requests. Pushes
 to `main`, `v*` tags, and manual runs also compile both native plugins using the
@@ -333,7 +361,8 @@ Adobe 2026 v2 SDK. Successful builds provide these artifacts (GitHub login requi
   and a SHA-256 file. Preserve the inner ZIP when copying it to a Mac so bundle
   permissions and signatures survive.
 
-Artifacts expire after 30 days; run the workflow manually to rebuild them.
+Actions artifacts are development snapshots and expire after 30 days; release
+downloads remain available. Run the workflow manually to rebuild development snapshots.
 Native builds run the C++/Rust ABI test and load both compiled plugins in a
 minimal SDK host harness. The macOS runner tests its native architecture;
 `lipo` checks that both architectures are in each bundle. These tests do not
