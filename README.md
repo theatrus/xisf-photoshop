@@ -11,9 +11,9 @@ Windows, `.plugin` on macOS), with entries in Photoshop's Open and Save dialogs.
 (Intel and Apple silicon), compiled against Adobe's 2026 SDK v2. CI gates plugin
 downloads on twelve Rust tests, a compiled C++/Rust ABI test, and a host harness
 that loads both plugins and exercises Adobe's `FormatRecord` interface.
-Live Photoshop validation remains pending. macOS bundles are ad-hoc signed;
-Developer ID signing and notarization are not configured. Plaintext SDKs are
-not redistributed.
+Live Photoshop validation remains pending. CI macOS bundles are Developer ID
+signed, notarized, and stapled; local builds are ad-hoc signed. Plaintext SDKs
+are not redistributed.
 
 ## Supported image workflow
 
@@ -197,10 +197,20 @@ a universal ZIP. The modern `PiPLs.json` bundle resources follow the supplied
 Run this on macOS; downloading the Adobe Mac SDK alone does not provide Apple's
 compiler, macOS system headers, or the ability to test the plug-in from Windows.
 
-Local bundles are ad-hoc signed. Set `CODE_SIGN_IDENTITY` to your Developer ID
-for a signed build; public distribution also requires notarization. After saving
-your documents and closing Photoshop, copy the bundles into its `Plug-ins` folder
-and restart. The SDK and resource generators are never included in the bundles.
+Local bundles are ad-hoc signed, which is enough for your own Mac. To sign,
+notarize, and staple them for distribution:
+
+```bash
+APPLE_API_KEY_PATH=~/AuthKey_KEYID.p8 APPLE_API_KEY=KEYID APPLE_API_ISSUER=ISSUER \
+  bash scripts/sign-macos.sh dist/macos "Developer ID Application: Name (TEAMID)"
+```
+
+The script checks both bundles, signs them with the hardened runtime and a
+secure timestamp, submits one ZIP to `notarytool`, prints Apple's log if the
+submission is rejected, and staples the tickets. Leave the three `APPLE_API_*`
+variables unset to sign without notarizing. After saving your documents and
+closing Photoshop, copy the bundles into its `Plug-ins` folder and restart. The
+SDK and resource generators are never included in the bundles.
 
 ## Architecture and tests
 
@@ -231,15 +241,36 @@ Adobe 2026 v2 SDK. Successful builds provide two artifacts (GitHub login require
 
 - `Seiza-Photoshop-Windows-x64`: ZIP containing both `.8bi` plugins and docs.
 - `Seiza-Photoshop-macOS-universal`: ZIP containing both `.plugin` bundles for
-  Intel and Apple silicon, ad-hoc signed, plus docs. Preserve the inner ZIP when
-  copying it to a Mac so bundle permissions and signatures survive.
+  Intel and Apple silicon, Developer ID signed, notarized, and stapled, plus docs
+  and a SHA-256 file. Preserve the inner ZIP when copying it to a Mac so bundle
+  permissions and signatures survive.
 
 Artifacts expire after 30 days; run the workflow manually to rebuild them.
 Native builds run the C++/Rust ABI test and load both compiled plugins in a
 minimal SDK host harness. The macOS runner tests its native architecture;
 `lipo` checks that both architectures are in each bundle. These tests do not
-replace interactive testing in Photoshop. Developer ID signing and notarization
-are not configured.
+replace interactive testing in Photoshop.
+
+### macOS signing
+
+The macOS plugins job uploads its ad-hoc signed bundles as a one-day
+`Seiza-Photoshop-macOS-universal-unsigned` artifact. A separate `sign-macos` job
+in the `signing` GitHub environment downloads that ZIP, imports the Developer ID
+certificate into a throwaway keychain, runs `scripts/sign-macos.sh`, and uploads
+the signed result. The environment is limited to `main` and `v*` tags, needs no
+manual approval, and holds six environment secrets:
+
+- `APPLE_BUILD_CERTIFICATE`: base64 Developer ID Application `.p12` with its key;
+- `APPLE_BUILD_CERTIFICATE_PASSWORD`: the `.p12` password;
+- `KEYCHAIN_PASSWORD`: a random password for the ephemeral CI keychain;
+- `APPLE_API_ISSUER`: App Store Connect team API issuer ID;
+- `APPLE_API_KEY`: App Store Connect API key ID; and
+- `APPLE_API_KEY_PRIVATE`: base64 `AuthKey_<KEY_ID>.p8`.
+
+The workflow selects the identity by the name `Developer ID Application`, so a
+renewed certificate needs only new `APPLE_BUILD_CERTIFICATE*` secrets. The job
+deletes the keychain, certificate, and API key even when a step fails. The SDK
+and its passphrase never reach this job.
 
 The `sdk-2026-v2` prerelease holds **encrypted build inputs, not installable
 plugins**. Adobe's SDK remains outside Git and plugin artifacts. CI decrypts it

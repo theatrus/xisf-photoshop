@@ -48,9 +48,14 @@ jobs:
           - platform: Windows-x64
             os: windows-latest
             sdk: win
+            artifact: Seiza-Photoshop-Windows-x64
+            retention-days: 30
+          # macOS bundles leave this job ad-hoc signed; sign-macos publishes them.
           - platform: macOS-universal
             os: macos-15
             sdk: mac
+            artifact: Seiza-Photoshop-macOS-universal-unsigned
+            retention-days: 1
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
@@ -80,14 +85,111 @@ jobs:
       - name: Build and test universal macOS plugins
         if: runner.os == 'macOS'
         run: bash scripts/build-macos.sh .sdk/extracted
-      - name: Upload installable plugins
+      - name: Upload plugins
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: Seiza-Photoshop-${{ matrix.platform }}
+          name: ${{ matrix.artifact }}
           path: dist/Seiza-Photoshop-${{ matrix.platform }}.zip
           if-no-files-found: error
           compression-level: 0
-          retention-days: 30
+          retention-days: ${{ matrix.retention-days }}
       - name: Remove decrypted SDK
         if: always()
         run: python scripts/ci_sdk.py --clean
+
+  sign-macos:
+    name: Sign and notarize macOS plugins
+    # The signing environment holds the Developer ID certificate and the App
+    # Store Connect key. Only validated bundles from the plugins job reach it,
+    # never the SDK or pull-request code.
+    if: github.event_name != 'pull_request' && github.repository == 'theatrus/xisf-photoshop'
+    needs: plugins
+    environment: signing
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Download unsigned bundles
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: Seiza-Photoshop-macOS-universal-unsigned
+          path: unsigned
+      - name: Unpack bundles as data
+        run: |
+          mkdir -p dist
+          ditto -x -k unsigned/Seiza-Photoshop-macOS-universal.zip dist
+          test -d dist/macos/SeizaFITS.plugin
+          test -d dist/macos/SeizaXISF.plugin
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_BUILD_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_BUILD_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          test -n "$APPLE_CERTIFICATE"
+          test -n "$APPLE_CERTIFICATE_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+
+          certificate_path="$RUNNER_TEMP/certificate.p12"
+          keychain_path="$RUNNER_TEMP/seiza-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$certificate_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 3600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          # Select by name, never by thumbprint: the name survives renewals.
+          certificate_identity="$(
+            security find-identity -v -p codesigning "$keychain_path" \
+              | awk -F'"' '/Developer ID Application/ { print $2; exit }'
+          )"
+          test -n "$certificate_identity"
+          printf 'CERT_ID=%s\n' "$certificate_identity" >> "$GITHUB_ENV"
+      - name: Sign, notarize, and staple bundles
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PRIVATE: ${{ secrets.APPLE_API_KEY_PRIVATE }}
+        run: |
+          test -n "$APPLE_API_ISSUER"
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_KEY_PRIVATE"
+
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_PRIVATE" | base64 -D > "$key_path"
+          chmod 600 "$key_path"
+          APPLE_API_KEY_PATH="$key_path" bash scripts/sign-macos.sh dist/macos "$CERT_ID"
+      - name: Package signed plugins
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/macos dist/Seiza-Photoshop-macOS-universal.zip
+          (cd dist && shasum -a 256 Seiza-Photoshop-macOS-universal.zip > Seiza-Photoshop-macOS-universal.zip.sha256)
+      - name: Upload signed plugins
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Seiza-Photoshop-macOS-universal
+          path: |
+            dist/Seiza-Photoshop-macOS-universal.zip
+            dist/Seiza-Photoshop-macOS-universal.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Remove signing material
+        if: always()
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/seiza-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          rm -f "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"

@@ -65,4 +65,4 @@ build/native-macos/host_smoke
 cp README.md NOTICE LICENSE dist/macos/
 ditto -c -k --sequesterRsrc --keepParent dist/macos dist/Seiza-Photoshop-macOS-universal.zip
 echo 'Built dist/macos/SeizaFITS.plugin and dist/macos/SeizaXISF.plugin'
-echo 'Local builds are ad-hoc signed. Public distribution needs Developer ID signing and notarization.'
+echo 'Bundles are ad-hoc signed. Run scripts/sign-macos.sh for Developer ID signing and notarization.'
