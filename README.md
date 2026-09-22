@@ -175,6 +175,11 @@ Download/extract the SDK using your Adobe account; it is not checked into this p
 # Complete plug-in build and distributable ZIP:
 .\scripts\build.ps1 -PhotoshopSdk C:\SDKs\PhotoshopSDK
 # Or set PHOTOSHOP_SDK to the extracted SDK root.
+
+# Optional Windows installer (after the complete plugin build):
+.\scripts\build-installer.ps1
+# Exercise installation, upgrades, rollback, and uninstall in an isolated tree:
+.\scripts\test-installer.ps1
 ```
 
 The script locates Visual Studio, `PIFormat.h`, and Adobe's `cnvtpipl.exe`, then
@@ -182,9 +187,52 @@ builds the real PiPL resources and links Rust into each DLL. Outputs are in `dis
 No separate Rust DLL or external conversion process is required. The build uses
 the dynamic Microsoft C runtime supplied by supported Photoshop installations.
 
+The installer build downloads a SHA-256-pinned Inno Setup 6.7.3 compiler into
+`build/tools` in portable mode. It packages only the tested plugins and docs;
+neither Adobe's SDK nor Inno Setup's compiler is distributed. The output is
+`dist/Seiza-Photoshop-Windows-x64-Setup-<version>.exe` with a SHA-256 file.
+Installer tests use a separate app identity and folders under `build/installer-tests`;
+they do not install plugins into Photoshop or require closing your real Photoshop.
+
 ## Install and verify in Photoshop
 
-After a successful native build, close Photoshop and install both plug-ins:
+### Optional Windows installer
+
+Download the `Seiza-Photoshop-Windows-x64-Installer` artifact from a successful
+[GitHub Actions build](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml),
+extract it, close Photoshop, and run `Seiza-Photoshop-Windows-x64-Setup-<version>.exe`.
+Approve the Windows administrator prompt, then restart Photoshop after setup.
+The installer currently has no Windows code-signing certificate, so Windows may
+show an unknown-publisher or SmartScreen prompt. Windows 10/11 x64 is supported;
+native Windows ARM64 Photoshop is not supported.
+
+Both plugins go in
+`C:\Program Files\Common Files\Adobe\Plug-Ins\CC\Seiza`, Adobe's
+[shared Photoshop plugin location](https://helpx.adobe.com/ca/photoshop/kb/plug-ins-photoshop-troubleshooting.html),
+so they are available to installed Photoshop CC versions and remain available
+after Photoshop upgrades. The installer can run before Photoshop is installed.
+Run a newer installer to update both plugins. Setup and uninstall require
+Photoshop to be closed and never close it or discard documents automatically.
+
+Setup finds older `SeizaFITS.8bi` and `SeizaXISF.8bi` copies directly in standard
+or registry-listed Photoshop plugin folders, their `Seiza` subfolders, and the
+shared plugin folder. It lists these copies before installation, backs them up to
+`C:\ProgramData\Seiza\Photoshop\InstallerBackups`, records their original paths,
+and removes the active old copies to avoid duplicate format entries. If you used
+a different custom plugin folder, remove those old copies yourself before restarting
+Photoshop. Failed setup restores removed copies where possible; backups remain
+available if a file cannot be restored.
+
+To uninstall, close Photoshop and remove **FITS and XISF for Photoshop** from
+**Windows Settings → Apps**. Preferences, legacy backups, and unrelated plugins
+are preserved. Old copies are not automatically restored on uninstall.
+Configure the plugins through **Help → About Plug-In → FITS/XISF** as described above.
+
+### Manual Windows installation (ZIP)
+
+The original ZIP remains available. After extracting it or completing a native
+build, close Photoshop and copy both `.8bi` files into its `Plug-ins/Seiza` folder.
+From a source checkout, you can also use:
 
 ```powershell
 .\scripts\install.ps1 -PluginDirectory 'C:\Program Files\Adobe\Adobe Photoshop 2026\Plug-ins'
@@ -193,7 +241,7 @@ After a successful native build, close Photoshop and install both plug-ins:
 Writing to Program Files requires an elevated PowerShell on this machine. Run
 the installation command there, or copy the two `.8bi` files from `dist` into
 Photoshop's `Plug-ins/Seiza` folder and approve Windows' administrator prompt.
-The installer does not request elevation or change folder permissions itself.
+This manual copy script does not request elevation or change folder permissions itself.
 Existing same-name plug-ins are backed up with `.bak`. Restart Photoshop after
 installation. To uninstall, close Photoshop and remove the two `.8bi` files.
 
@@ -275,9 +323,11 @@ Both platform build scripts run that harness before packaging.
 [GitHub Actions](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
 tests the Rust backend on Windows and macOS for pushes and pull requests. Pushes
 to `main`, `v*` tags, and manual runs also compile both native plugins using the
-Adobe 2026 v2 SDK. Successful builds provide two artifacts (GitHub login required):
+Adobe 2026 v2 SDK. Successful builds provide these artifacts (GitHub login required):
 
 - `Seiza-Photoshop-Windows-x64`: ZIP containing both `.8bi` plugins and docs.
+- `Seiza-Photoshop-Windows-x64-Installer`: optional setup `.exe` and SHA-256 file,
+  with automatic shared-folder installation, upgrades, and uninstall support.
 - `Seiza-Photoshop-macOS-universal`: ZIP containing both `.plugin` bundles for
   Intel and Apple silicon, Developer ID signed, notarized, and stapled, plus docs
   and a SHA-256 file. Preserve the inner ZIP when copying it to a Mac so bundle
@@ -288,6 +338,10 @@ Native builds run the C++/Rust ABI test and load both compiled plugins in a
 minimal SDK host harness. The macOS runner tests its native architecture;
 `lipo` checks that both architectures are in each bundle. These tests do not
 replace interactive testing in Photoshop.
+The Windows job also tests installer migration of manual copies, rollback on a
+locked file, blocking installation/uninstall while Photoshop is running (using
+a stand-in process), repeated installation, and uninstall preservation of
+backups and unrelated files. macOS continues to use the bundle ZIP for installation.
 
 ### macOS signing
 

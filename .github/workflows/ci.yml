@@ -82,6 +82,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/build.ps1 -PhotoshopSdk .sdk/extracted
+      - name: Build and test optional Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/build-installer.ps1
+          ./scripts/test-installer.ps1
       - name: Build and test universal macOS plugins
         if: runner.os == 'macOS'
         run: bash scripts/build-macos.sh .sdk/extracted
@@ -93,6 +99,17 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: ${{ matrix.retention-days }}
+      - name: Upload optional Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Seiza-Photoshop-Windows-x64-Installer
+          path: |
+            dist/Seiza-Photoshop-Windows-x64-Setup-*.exe
+            dist/Seiza-Photoshop-Windows-x64-Setup-*.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
       - name: Remove decrypted SDK
         if: always()
         run: python scripts/ci_sdk.py --clean
