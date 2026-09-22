@@ -1,0 +1,7 @@
+/target/
+/build/
+/dist/
+/.sdk/
+*.user
+__pycache__/
+*.pyc

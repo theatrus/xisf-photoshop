@@ -1,0 +1,9 @@
+Seiza Photoshop astronomy formats
+Copyright 2026
+
+This project uses the Apache-2.0 licensed seiza-fits and seiza-xisf crates
+by Yann Ramin (theatrus), https://github.com/theatrus/seiza.
+Cargo.lock records all transitive dependencies and exact versions.
+
+Adobe Photoshop and the Photoshop SDK belong to Adobe. The Adobe SDK is
+not redistributed by this project and must be obtained separately from Adobe.

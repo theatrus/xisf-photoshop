@@ -1,0 +1,22 @@
+[package]
+name = "seiza-photoshop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "FITS and XISF codec bridge for native Photoshop file-format plug-ins"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+seiza-fits = "=0.2.2"
+seiza-xisf = "=0.2.1"
+
+[dev-dependencies]
+flate2 = "1"
+lz4_flex = "0.14"
+zstd = "0.13"
+
+[profile.release]
+lto = "thin"
