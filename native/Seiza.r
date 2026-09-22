@@ -2,10 +2,10 @@
 #include "PIGeneral.h"
 
 #if SEIZA_FORMAT == 1
-#define FORMAT_NAME "Seiza FITS"
+#define FORMAT_NAME "FITS"
 #define FILE_TYPE 'FITS'
 #else
-#define FORMAT_NAME "Seiza XISF"
+#define FORMAT_NAME "XISF"
 #define FILE_TYPE 'XISF'
 #endif
 

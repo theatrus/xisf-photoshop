@@ -53,9 +53,14 @@ bool loadOptions(FormatRecord& r, SeizaOptions& options) {
     SeizaOptions stored;
     std::memcpy(&stored, data, sizeof(stored));
     r.handleProcs->unlockProc(r.revertInfo);
-    if (stored.magic != options.magic || stored.version != options.version ||
+    if (stored.magic != options.magic || (stored.version != 1 && stored.version != options.version) ||
         (stored.readDepth != 16 && stored.readDepth != 32) ||
-        (stored.writeDepth != 16 && stored.writeDepth != 32)) return false;
+        (stored.writeDepth != 16 && stored.writeDepth != 32 &&
+            !(stored.version == 2 && stored.writeDepth == 0))) return false;
+    if (stored.version == 1) {
+        stored.version = options.version;
+        stored.writeDepth = 0;
+    }
     options = stored;
     return true;
 }
@@ -108,7 +113,7 @@ uint32_t importDepth(FormatRecord& r, State& state) {
              << "Rounding loses precision, and the original absolute scale is not retained on save.\n\n"
              << "Source range: " << state.minimum << " to " << state.maximum << ".";
         if (state.minimum == state.maximum) text << " This constant image will become zero (black).";
-        options.readDepth = chooseDepth("Seiza - Open image", text.str(), options.readDepth);
+        options.readDepth = chooseDepth("FITS / XISF - Open image", text.str(), options.readDepth);
         if (!options.readDepth) throw HostError{userCanceledErr};
     }
     storeOptions(r, options);
@@ -131,7 +136,8 @@ void writeOptions(FormatRecord& r) {
             "are lost. No stretch or automatic rescaling is applied.\n\n"
             "Photoshop 16-bit documents already have about 15 bits plus an endpoint of precision. "
             "Choose 32-bit float to avoid further quantization.";
-        options.writeDepth = chooseDepth("Seiza - Save image", text, options.writeDepth);
+        options.writeDepth = chooseDepth("FITS / XISF - Save image", text,
+            options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth));
         if (!options.writeDepth) throw HostError{userCanceledErr};
     }
     storeOptions(r, options);
@@ -328,7 +334,8 @@ void writeStart(FormatRecord& r) {
     file.seek(0);
     WriteContext context{&r};
     char error[1024]{};
-    if (seiza_encode_depth(kFormat, options.writeDepth, w, h, r.planes, samples.data(), count, writeBytes, &context, error, sizeof(error))) {
+    const auto outputDepth = options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth);
+    if (seiza_encode_depth(kFormat, outputDepth, w, h, r.planes, samples.data(), count, writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);
     }

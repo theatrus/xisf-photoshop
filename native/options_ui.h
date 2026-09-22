@@ -31,11 +31,14 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
         auto* data = reinterpret_cast<SeizaDefaults*>(lparam);
         SetWindowLongPtrW(window, DWLP_USER, lparam);
         for (int control : {SEIZA_IMPORT_DEFAULT, SEIZA_EXPORT_DEFAULT}) {
+            if (control == SEIZA_EXPORT_DEFAULT)
+                SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Match document depth"));
             SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"32-bit floating point"));
             SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"16-bit integer"));
         }
         SendDlgItemMessageW(window, SEIZA_IMPORT_DEFAULT, CB_SETCURSEL, data->readDepth == 16 ? 1 : 0, 0);
-        SendDlgItemMessageW(window, SEIZA_EXPORT_DEFAULT, CB_SETCURSEL, data->writeDepth == 16 ? 1 : 0, 0);
+        SendDlgItemMessageW(window, SEIZA_EXPORT_DEFAULT, CB_SETCURSEL,
+            data->writeDepth == 16 ? 2 : data->writeDepth == 32 ? 1 : 0, 0);
         CheckDlgButton(window, SEIZA_ASK_OPEN, data->askOnOpen ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, SEIZA_ASK_SAVE, data->askOnSave ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
@@ -44,7 +47,8 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
         if (LOWORD(wparam) == IDOK) {
             auto* data = reinterpret_cast<SeizaDefaults*>(GetWindowLongPtrW(window, DWLP_USER));
             data->readDepth = SendDlgItemMessageW(window, SEIZA_IMPORT_DEFAULT, CB_GETCURSEL, 0, 0) == 1 ? 16 : 32;
-            data->writeDepth = SendDlgItemMessageW(window, SEIZA_EXPORT_DEFAULT, CB_GETCURSEL, 0, 0) == 1 ? 16 : 32;
+            const auto savedType = SendDlgItemMessageW(window, SEIZA_EXPORT_DEFAULT, CB_GETCURSEL, 0, 0);
+            data->writeDepth = savedType == 2 ? 16 : savedType == 1 ? 32 : 0;
             data->askOnOpen = IsDlgButtonChecked(window, SEIZA_ASK_OPEN) == BST_CHECKED;
             data->askOnSave = IsDlgButtonChecked(window, SEIZA_ASK_SAVE) == BST_CHECKED;
             EndDialog(window, IDOK); return TRUE;

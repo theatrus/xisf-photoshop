@@ -4,9 +4,9 @@
 // Versioned document options stored in a Photoshop-owned revertInfo handle.
 struct SeizaOptions {
     uint32_t magic = 0x535A4F50; // SZOP
-    uint32_t version = 1;
+    uint32_t version = 2;
     uint32_t readDepth = 32;
-    uint32_t writeDepth = 32;
+    uint32_t writeDepth = 0; // Zero follows the current Photoshop document depth.
 };
 
 #define SEIZA_OPTIONS_DIALOG 17000

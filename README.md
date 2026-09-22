@@ -3,7 +3,8 @@
 [![Build and test plugins](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml/badge.svg)](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
 
 Native Photoshop file-format plug-ins backed by `seiza-fits 0.2.2` and
-`seiza-xisf 0.2.1`. The build produces **SeizaFITS** and **SeizaXISF** (`.8bi` on
+`seiza-xisf 0.2.1`. Photoshop lists the formats as **FITS** and **XISF**. Plugin files retain the names
+**SeizaFITS** and **SeizaXISF** (`.8bi` on
 Windows, `.plugin` on macOS), with entries in Photoshop's Open and Save dialogs.
 
 **Development status:** Initial test builds for Windows x64 and universal macOS
@@ -27,8 +28,9 @@ not redistributed.
   zero. Settings explain the loss of original absolute scale and precision;
   optional per-file dialogs also show the source range. No gamma conversion or
   debayering is applied.
-- Save **16- or 32-bit** grayscale/RGB documents as either Float32 (default) or
-  UInt16 FITS/XISF using the saved export default. Eight-bit documents must first
+- Save **16- or 32-bit** grayscale/RGB documents at their current Photoshop depth
+  by default: 16-bit becomes UInt16, and 32-bit becomes Float32. Settings also
+  offer explicit Float32 or UInt16 overrides. Eight-bit documents must first
   be converted via **Image → Mode → 16 Bits/Channel** or **32 Bits/Channel**.
 - Float32 output preserves the current document's sample values; it does
   not restore the original scale or precision after a 16-bit import. UInt16
@@ -52,23 +54,25 @@ an ICC profile, so color appearance depends on Photoshop's color settings.
 
 ## Default settings
 
-Open **Help → About Plug-In → Seiza FITS** (or **Seiza XISF**) on Windows.
-On macOS, use **Photoshop → About Plug-In → Seiza FITS/XISF**.
-The plugin's About entry opens **Seiza - Default settings**; it works without an
+Open **Help → About Plug-In → FITS** (or **XISF**) on Windows.
+On macOS, use **Photoshop → About Plug-In → FITS/XISF**.
+The plugin's About entry opens **FITS / XISF - Default settings**; it works without an
 open document. Both formats share the same preferences:
 
 - **Default import depth:** Float32 or rescaled 16-bit integer.
-- **Default saved sample type:** Float32 or UInt16.
+- **Default saved sample type:** Match document depth (default), Float32, or UInt16.
 - **Ask on every Open** and **Ask on every Save / Save As:** enable independently
   to restore per-file choices. Revert and previews never prompt.
 
-New installations default to Float32 for both operations with both prompts off.
-For a 16-bit editing workflow, select 16-bit import, choose your saved sample type,
+New installations default to Float32 import and **Match document depth** export,
+with both prompts off. Matching is resolved on every save, including after changing
+the Photoshop document mode; it does not remember an old numeric depth.
+For a 16-bit editing workflow, select 16-bit import, leave the saved sample type at Match document depth,
 leave both checkboxes off, and click **Save defaults**. Conversion warnings appear
 in settings before you apply a lossy default. Cancel changes nothing.
 
 Settings take effect for new imports and documents without remembered options.
-Revert retains a document's import choice, and Save retains its saved sample type.
+Revert retains a document's import choice, and Save retains its match-document policy or explicit sample-type override.
 To override an existing document's saved type, enable **Ask on every Save / Save As**
 and use Save As. One-off dialog choices do not change global defaults.
 Settings survive restarts and plugin updates; changes from either plugin are
@@ -76,7 +80,10 @@ visible to the other without restarting Photoshop.
 
 Preferences are stored per user at `%APPDATA%\Seiza\Photoshop\defaults-v1.txt`
 on Windows and `~/Library/Application Support/Seiza/Photoshop/defaults-v1.txt`
-on macOS. Missing or malformed preferences fall back to quiet Float32 defaults.
+on macOS. Missing or malformed preferences fall back to Float32 import and matching export,
+with prompts off. Settings and document options from 0.3.0 and earlier migrate
+the save type to Match document depth while retaining the import choice. The
+preferences filename stays unchanged; its contents use the version 2 schema.
 Tests use an isolated path via `SEIZA_PHOTOSHOP_PREFERENCES` and never modify
 your actual settings.
 
@@ -150,7 +157,7 @@ cargo run --locked --example make_fixtures
    Open all four images in `build/fixtures`. Try both import depths and verify
    128×96 dimensions and grayscale/RGB channels. Mono is a left-to-right ramp. RGB has red increasing
    left-to-right, green increasing top-to-bottom, and blue only in the upper-left.
-2. Save copies using each Seiza format and output depth. Float32 retains document
+2. Save copies using each format and output depth. Float32 retains document
    samples; UInt16 rounds them. Reopen as Float32 to inspect saved values without
    applying another import rescaling. Test Revert retains the document depth.
 3. Repeat with a real compressed XISF, unsigned 16-bit FITS, and a Float32 HDR file.

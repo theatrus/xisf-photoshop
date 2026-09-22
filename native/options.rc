@@ -18,10 +18,10 @@ END
 
 17100 DIALOGEX 0, 0, 360, 240
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Seiza - Default settings"
+CAPTION "FITS / XISF - Default settings"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT "Seiza Astronomy Formats 0.3.0 - shared by FITS and XISF", -1, 12, 10, 336, 14
+    LTEXT "Seiza Astronomy Formats 0.3.1 - shared by FITS and XISF", -1, 12, 10, 336, 14
     LTEXT "Default import depth", -1, 12, 34, 120, 12
     COMBOBOX 17101, 142, 31, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     AUTOCHECKBOX "Ask on every Open", 17103, 142, 54, 200, 12
@@ -30,7 +30,7 @@ BEGIN
     AUTOCHECKBOX "Ask on every Save / Save As", 17104, 142, 100, 200, 12
     LTEXT "16-bit import rescales the full image range without clipping. Photoshop retains about 15 bits plus an endpoint; precision and original absolute scale are lost.", -1, 12, 124, 336, 32
     LTEXT "UInt16 export rounds 0..1 to 0..65535 and clips negative/HDR values. Float32 preserves current document values but cannot recover lost import precision.", -1, 12, 161, 336, 32
-    LTEXT "Defaults apply to new files. Existing documents keep remembered choices.", -1, 12, 201, 336, 12
+    LTEXT "Match document depth follows the current Photoshop 16/32-bit mode.", -1, 12, 201, 336, 12
     DEFPUSHBUTTON "Save defaults", IDOK, 194, 220, 78, 14
     PUSHBUTTON "Cancel", IDCANCEL, 280, 220, 68, 14
 END

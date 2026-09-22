@@ -145,7 +145,8 @@ static void closeFile(File file) {
 #endif
 }
 static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
-    uint32_t readDepth, uint32_t writeDepth, bool interactive = false, bool useDefaults = false) {
+    uint32_t readDepth, uint32_t writeDepth, bool interactive = false, bool useDefaults = false,
+    bool changeMode = false, bool legacyOptions = false) {
 #ifdef _WIN32
     auto entry = reinterpret_cast<Entry>(GetProcAddress(module, "PluginMain"));
     require(FindResourceW(module, MAKEINTRESOURCEW(16000), L"PiPL") != nullptr, "PiPL resource missing");
@@ -207,11 +208,18 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
 
         Host writer{}; writer.entry = entry; initialize(writer, file);
         if (!useDefaults) setOptions(writer, readDepth, writeDepth);
+        if (legacyOptions) {
+            setOptions(writer, readDepth, 32);
+            reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->version = 1;
+        }
         if (interactive || useDefaults) writer.descriptor.playInfo = plugInDialogDisplay;
+        const auto documentDepth = changeMode ? (readDepth == 16 ? 32u : 16u) : readDepth;
+        if (changeMode && documentDepth == 16) for (auto& value : expected)
+            value = static_cast<float>(std::round(std::clamp(static_cast<double>(value), 0.0, 1.0) * 32768.0) / 32768.0);
         writer.writing = true; writer.pixels = expected;
         writer.record.imageSize32.h = width; writer.record.imageSize32.v = height;
-        writer.record.planes = static_cast<int16>(planes); writer.record.depth = static_cast<int16>(readDepth);
-        writer.record.imageMode = readDepth == 16 ? (planes == 1 ? plugInModeGray16 : plugInModeRGB48) :
+        writer.record.planes = static_cast<int16>(planes); writer.record.depth = static_cast<int16>(documentDepth);
+        writer.record.imageMode = documentDepth == 16 ? (planes == 1 ? plugInModeGray16 : plugInModeRGB48) :
             (planes == 1 ? plugInModeGray32 : plugInModeRGB96);
         if (!useDefaults) success(writer, formatSelectorOptionsStart);
         success(writer, formatSelectorEstimateStart);
@@ -221,11 +229,16 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         encoded.resize(static_cast<size_t>(io.size()));
         io.seek(0);
         require(io.read(encoded.data(), encoded.size()) == encoded.size(), "Output read failed");
+        const auto outputDepth = writeDepth ? writeDepth : documentDepth;
+        const std::string header(encoded.begin(), encoded.begin() + std::min<size_t>(encoded.size(), 2880));
+        require(header.find(format == 1 ? (outputDepth == 16 ? "BITPIX  =                   16" : "BITPIX  =                  -32") :
+            (outputDepth == 16 ? "sampleFormat=\"UInt16\"" : "sampleFormat=\"Float32\"")) != std::string::npos,
+            "Saved sample type does not match the requested/document depth");
         SeizaImage* decoded = nullptr;
         require(seiza_decode(format, encoded.data(), encoded.size(), &decoded, error, sizeof(error)) == 0, error);
         SeizaImageView view{}; seiza_image_view(decoded, &view);
         auto savedExpected = expected;
-        if (writeDepth == 16) for (auto& value : savedExpected)
+        if (outputDepth == 16) for (auto& value : savedExpected)
             value = static_cast<float>(std::round(std::clamp(static_cast<double>(value), 0.0, 1.0) * 65535.0)) / 65535.0f;
         const bool equal = view.samples == expected.size() && std::equal(savedExpected.begin(), savedExpected.end(), view.pixels);
         seiza_image_free(decoded);
@@ -250,8 +263,8 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
 }
 static void checkDefaults() {
     auto initial = readDefaults();
-    require(initial.readDepth == 32 && initial.writeDepth == 32 && !initial.askOnOpen && !initial.askOnSave,
-        "Missing preferences must be quiet Float32");
+    require(initial.readDepth == 32 && initial.writeDepth == 0 && !initial.askOnOpen && !initial.askOnSave,
+        "Missing preferences must be quiet Float32 import / matching export");
     saveDefaults({16, 32, true, false});
     auto saved = readDefaults();
     require(saved.readDepth == 16 && saved.writeDepth == 32 && saved.askOnOpen && !saved.askOnSave,
@@ -264,13 +277,18 @@ static void checkDefaults() {
     try { saveDefaults({8, 16, false, false}); } catch (const std::exception&) { rejected = true; }
     require(rejected && readDefaults().writeDepth == 16, "Invalid preferences replaced valid preferences");
     for (const char* content : {"broken", "SEIZA_DEFAULTS_V1\n16 8 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 3 0\n",
-        "SEIZA_DEFAULTS_V2\n16 16 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 0 0\ntrailing"}) {
+        "SEIZA_DEFAULTS_V3\n16 16 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 0 0\ntrailing"}) {
         { std::ofstream file(preferencesPath()); file << content; }
         const auto value = readDefaults();
-        require(value.readDepth == 32 && value.writeDepth == 32 && !value.askOnOpen && !value.askOnSave,
-            "Malformed preferences must fall back to quiet Float32");
+        require(value.readDepth == 32 && value.writeDepth == 0 && !value.askOnOpen && !value.askOnSave,
+            "Malformed preferences must fall back to quiet matching export");
     }
+    { std::ofstream file(preferencesPath()); file << "SEIZA_DEFAULTS_V1\n16 32 1 0\n"; }
+    saved = readDefaults();
+    require(saved.readDepth == 16 && saved.writeDepth == 0 && saved.askOnOpen && !saved.askOnSave,
+        "Legacy settings did not migrate to matching export");
     saveDefaults({});
+    require(readDefaults().writeDepth == 0, "Matching export preference did not persist");
 }
 
 int main(int argc, char** argv) {
@@ -316,7 +334,7 @@ int main(int argc, char** argv) {
                     saved.readDepth, saved.writeDepth, saved.askOnOpen, saved.askOnSave);
             }
             else if (interactive) run(module, format, 3, 2, 3, 16, 16, true);
-            else for (uint32_t readDepth : {16u, 32u}) for (uint32_t writeDepth : {16u, 32u}) {
+            else for (uint32_t readDepth : {16u, 32u}) for (uint32_t writeDepth : {0u, 16u, 32u}) {
                 run(module, format, 1, 1, 1, readDepth, writeDepth);
                 run(module, format, 4, 1, 1, readDepth, writeDepth);
                 run(module, format, 5, 1, 1, readDepth, writeDepth);
@@ -325,6 +343,10 @@ int main(int argc, char** argv) {
                 run(module, format, 32768, 1, 1, readDepth, writeDepth);
                 saveDefaults({readDepth, writeDepth, false, false});
                 run(module, format, 3, 2, 3, readDepth, writeDepth, false, true);
+                if (writeDepth == 0) {
+                    run(module, format, 3, 2, 3, readDepth, 0, false, false, true);
+                    run(module, format, 3, 2, 3, readDepth, 0, false, false, false, true);
+                }
                 saveDefaults({});
             }
 #ifdef _WIN32
@@ -334,6 +356,6 @@ int main(int argc, char** argv) {
 #endif
         }
         std::filesystem::remove(testPath);
-        std::puts("Adobe SDK host harness passed: saved defaults, quiet import/export, skipped save options, revert, 16/32-bit pixels, rescaling, cancellation and invalid inputs.");
+        std::puts("Adobe SDK host harness passed: matching document depth, mode changes, legacy migration, saved defaults, quiet import/export, skipped save options, revert, 16/32-bit pixels, rescaling, cancellation and invalid inputs.");
     } catch (const std::exception& e) { std::fprintf(stderr, "%s\n", e.what()); return 1; }
 }
