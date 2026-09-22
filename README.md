@@ -3,16 +3,16 @@
 [![Build and test plugins](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml/badge.svg)](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
 
 Native Photoshop file-format plug-ins backed by `seiza-fits 0.2.2` and
-`seiza-xisf 0.2.1`. The build produces **SeizaFITS.8bi** and **SeizaXISF.8bi**,
-with entries in Photoshop's Open and Save dialogs.
+`seiza-xisf 0.2.1`. The build produces **SeizaFITS** and **SeizaXISF** (`.8bi` on
+Windows, `.plugin` on macOS), with entries in Photoshop's Open and Save dialogs.
 
-**Development status:** Windows x64 `.8bi` binaries compile against Adobe's
-2026 SDK v2. Nine Rust tests, a compiled C++/Rust ABI test, and a host harness that
-loads both actual DLLs and exercises Adobe's `FormatRecord` interface pass.
-The ZIP in `dist` is an initial test build. Live Photoshop validation is still
-pending installation into its protected plug-in folder and a safe restart.
-macOS POSIX I/O and universal bundle build scripts are implemented, but have not
-been compiled or tested on a Mac. Neither SDK is redistributed.
+**Development status:** Initial test builds for Windows x64 and universal macOS
+(Intel and Apple silicon), compiled against Adobe's 2026 SDK v2. CI gates plugin
+downloads on nine Rust tests, a compiled C++/Rust ABI test, and a host harness
+that loads both plugins and exercises Adobe's `FormatRecord` interface.
+Live Photoshop validation remains pending. macOS bundles are ad-hoc signed;
+Developer ID signing and notarization are not configured. Plaintext SDKs are
+not redistributed.
 
 ## Supported image workflow
 
@@ -38,8 +38,9 @@ an ICC profile, so color appearance depends on Photoshop's color settings.
 
 ## Current limits
 
-- Tested build platform: Windows x64. The macOS Intel/Apple silicon build path
-  still requires validation on macOS with Xcode.
+- CI builds Windows x64 and universal macOS. Automated host tests run on Windows
+  x64 and the Mac runner's native architecture; interactive Photoshop checks are
+  still required on each supported architecture.
 - FITS primary HDU only; extra HDUs are not opened. XISF opens its first image.
   FITS cubes other than one/three planes are rejected.
 - Bayer/CFA data opens as grayscale; debayer before opening if you need color.
