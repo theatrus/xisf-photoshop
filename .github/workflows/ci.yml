@@ -1,0 +1,93 @@
+name: Build and test plugins
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codec:
+    name: Codec (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo run --locked --example make_fixtures
+
+  plugins:
+    name: Plugins (${{ matrix.platform }})
+    # Never give pull-request code access to the SDK or its decryption key.
+    if: github.event_name != 'pull_request' && github.repository == 'theatrus/xisf-photoshop'
+    needs: codec
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows-x64
+            os: windows-latest
+            sdk: win
+          - platform: macOS-universal
+            os: macos-15
+            sdk: mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Download encrypted SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release download sdk-2026-v2 --pattern "adobe_photoshop_sdk_2026_${{ matrix.sdk }}_v2.zip.gpg" --dir .sdk
+      - name: Ensure GnuPG on macOS
+        if: runner.os == 'macOS'
+        run: command -v gpg || brew install gnupg
+      - name: Decrypt and verify SDK
+        env:
+          PHOTOSHOP_SDK_PASSPHRASE: ${{ secrets.PHOTOSHOP_SDK_PASSPHRASE }}
+        run: python scripts/ci_sdk.py ${{ matrix.sdk }}
+      - name: Build and test Windows plugins
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build.ps1 -PhotoshopSdk .sdk/extracted
+      - name: Build and test universal macOS plugins
+        if: runner.os == 'macOS'
+        run: bash scripts/build-macos.sh .sdk/extracted
+      - name: Upload installable plugins
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Seiza-Photoshop-${{ matrix.platform }}
+          path: dist/Seiza-Photoshop-${{ matrix.platform }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Remove decrypted SDK
+        if: always()
+        run: python scripts/ci_sdk.py --clean

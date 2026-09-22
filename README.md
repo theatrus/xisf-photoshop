@@ -1,5 +1,7 @@
 # Seiza astronomy formats for Photoshop
 
+[![Build and test plugins](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml/badge.svg)](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
+
 Native Photoshop file-format plug-ins backed by `seiza-fits 0.2.2` and
 `seiza-xisf 0.2.1`. The build produces **SeizaFITS.8bi** and **SeizaXISF.8bi**,
 with entries in Photoshop's Open and Save dialogs.
@@ -140,8 +142,41 @@ malformed input, non-finite values, FFI ownership, and write failures.
 `native/codec_smoke.cpp` links the actual release Rust library into a C++ executable
 and verifies both formats across the language boundary. `native/host_smoke.cpp`
 loads the compiled plug-ins through `PluginMain` and uses the real SDK structures.
-The Windows build runs that harness before packaging. CI runs the backend and
-C ABI checks without distributing Adobe's SDK.
+Both platform build scripts run that harness before packaging.
+
+## CI and downloads
+
+[GitHub Actions](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
+tests the Rust backend on Windows and macOS for pushes and pull requests. Pushes
+to `main`, `v*` tags, and manual runs also compile both native plugins using the
+Adobe 2026 v2 SDK. Successful builds provide two artifacts (GitHub login required):
+
+- `Seiza-Photoshop-Windows-x64`: ZIP containing both `.8bi` plugins and docs.
+- `Seiza-Photoshop-macOS-universal`: ZIP containing both `.plugin` bundles for
+  Intel and Apple silicon, ad-hoc signed, plus docs. Preserve the inner ZIP when
+  copying it to a Mac so bundle permissions and signatures survive.
+
+Artifacts expire after 30 days; run the workflow manually to rebuild them.
+Native builds run the C++/Rust ABI test and load both compiled plugins in a
+minimal SDK host harness. The macOS runner tests its native architecture;
+`lipo` checks that both architectures are in each bundle. These tests do not
+replace interactive testing in Photoshop. Developer ID signing and notarization
+are not configured.
+
+The `sdk-2026-v2` prerelease holds **encrypted build inputs, not installable
+plugins**. Adobe's SDK remains outside Git and plugin artifacts. CI decrypts it
+with the `PHOTOSHOP_SDK_PASSPHRASE` repository secret, verifies the original ZIP's
+SHA-256, and removes plaintext inputs after the build. This follows GitHub's
+[large secret storage pattern](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#storing-large-secrets).
+Pull requests never receive the SDK or its key; no `pull_request_target` workflow
+is used. Fork owners can run backend tests or build locally with their own SDK.
+
+To update the SDK, encrypt both new ZIPs using GnuPG AES256 with a strong shared
+random passphrase supplied through stdin, upload the `.gpg` files to a new build
+input release, update `scripts/ci_sdk.py` hashes and the workflow release/asset
+names, and set the Actions secret to that passphrase. Never upload plaintext SDK
+archives or log decrypted contents. Updating both archives and the secret together
+avoids mixing encryption keys across platforms.
 
 The Photoshop C++ SDK is Adobe's documented route for adding file formats:
 [Photoshop extensibility](https://developer.adobe.com/photoshop/).
