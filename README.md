@@ -20,8 +20,10 @@ Both FITS and XISF are included in every package.
 | macOS Intel / Apple silicon | [Universal plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-macOS-universal.zip) | Extract on your Mac, close Photoshop, copy both `.plugin` bundles from the `macos` folder into Photoshop's `Plug-ins` folder, then restart. |
 
 The Windows installer handles updates and removal of detected older manual copies;
-see [Windows installation details](#optional-windows-installer). It is currently
-unsigned, so Windows may show an unknown-publisher or SmartScreen prompt.
+see [Windows installation details](#optional-windows-installer). Releases after
+v0.4.0 are Authenticode-signed as StackFoundry LLC, both the installer and the
+`.8bi` plugins inside it; v0.4.0 and earlier are unsigned, so Windows may show
+an unknown-publisher or SmartScreen prompt for those.
 The macOS bundles are Developer ID signed, notarized, and stapled. Download and
 extract the original ZIP on macOS to preserve bundle permissions and signatures.
 Each release download has a matching `.sha256` file on the release page.

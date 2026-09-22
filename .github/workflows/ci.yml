@@ -45,11 +45,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows plugins leave this job unsigned; sign-windows publishes them.
           - platform: Windows-x64
             os: windows-latest
             sdk: win
-            artifact: Seiza-Photoshop-Windows-x64
-            retention-days: 30
+            artifact: Seiza-Photoshop-Windows-x64-unsigned
+            retention-days: 1
           # macOS bundles leave this job ad-hoc signed; sign-macos publishes them.
           - platform: macOS-universal
             os: macos-15
@@ -99,8 +100,112 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: ${{ matrix.retention-days }}
-      - name: Upload optional Windows installer
-        if: runner.os == 'Windows'
+      - name: Remove decrypted SDK
+        if: always()
+        run: python scripts/ci_sdk.py --clean
+
+  sign-windows:
+    name: Sign Windows plugins and installer
+    # Azure Artifact Signing over GitHub OIDC: there is no signing secret in
+    # this repository. `environment: signing` is load-bearing -- it is what puts
+    # `:environment:signing` in the OIDC subject the Entra federated credential
+    # matches on. Only validated plugins from the plugins job reach it, never
+    # the SDK or pull-request code.
+    if: github.event_name != 'pull_request' && github.repository == 'theatrus/xisf-photoshop'
+    needs: plugins
+    environment: signing
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Download unsigned plugins
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: Seiza-Photoshop-Windows-x64-unsigned
+          path: unsigned
+      - name: Unpack plugins as data
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Expand-Archive -LiteralPath unsigned/Seiza-Photoshop-Windows-x64.zip -DestinationPath dist -Force
+          foreach ($name in 'SeizaFITS.8bi', 'SeizaXISF.8bi') {
+            if (-not (Test-Path -LiteralPath "dist/$name")) { throw "Missing $name in unsigned archive" }
+          }
+      - name: Authenticate to Azure (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # The plugins are signed before the installer is built around them, so
+      # both the portable ZIP and what the installer lays down carry a signature,
+      # not just the installer's outer shell.
+      - name: Sign plugins
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\dist\SeizaFITS.8bi
+            ${{ github.workspace }}\dist\SeizaXISF.8bi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify plugin signatures and repackage
+        run: |
+          foreach ($name in 'SeizaFITS.8bi', 'SeizaXISF.8bi') {
+            $sig = Get-AuthenticodeSignature -LiteralPath "dist/$name"
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'StackFoundry LLC') {
+              throw "Invalid signature on $name: $($sig.Status) $($sig.SignerCertificate.Subject)"
+            }
+          }
+          Remove-Item -LiteralPath dist/Seiza-Photoshop-Windows-x64.zip -ErrorAction Ignore
+          Compress-Archive -Path dist\*.8bi,dist\README.md,dist\NOTICE,dist\LICENSE -DestinationPath dist\Seiza-Photoshop-Windows-x64.zip -Force
+          $hash = (Get-FileHash -LiteralPath dist/Seiza-Photoshop-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("dist/Seiza-Photoshop-Windows-x64.zip.sha256", "$hash  Seiza-Photoshop-Windows-x64.zip`n")
+      - name: Build installer around signed plugins
+        run: ./scripts/build-installer.ps1
+      - name: Sign installer
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\Seiza-Photoshop-Windows-x64-Setup-*.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      # build-installer.ps1 hashed the installer before it was signed; redo it.
+      - name: Verify installer signature and rehash
+        run: |
+          $installer = Get-Item dist/Seiza-Photoshop-Windows-x64-Setup-*.exe
+          if ($installer.Count -ne 1) { throw 'Expected exactly one installer' }
+          $sig = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'StackFoundry LLC') {
+            throw "Invalid installer signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$($installer.FullName).sha256", "$hash  $($installer.Name)`n")
+          Write-Host "Signed $($installer.Name) as $($sig.SignerCertificate.Subject)"
+      - name: Upload signed plugins
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Seiza-Photoshop-Windows-x64
+          path: |
+            dist/Seiza-Photoshop-Windows-x64.zip
+            dist/Seiza-Photoshop-Windows-x64.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload signed installer
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: Seiza-Photoshop-Windows-x64-Installer
@@ -110,9 +215,6 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
-      - name: Remove decrypted SDK
-        if: always()
-        run: python scripts/ci_sdk.py --clean
 
   sign-macos:
     name: Sign and notarize macOS plugins
