@@ -18,8 +18,9 @@ not redistributed.
 ## Supported image workflow
 
 - Open `.fits`, `.fit`, `.fts`, and `.xisf` into grayscale or RGB using the saved
-  **32-bit float** or **16-bit integer** import default. Open and Save are quiet
-  by default; change preferences using the settings entry below.
+  **32-bit float** or **16-bit integer** import choice. By default, each Open asks
+  which depth to use, with **Remember choice** unchecked. Save follows the
+  document depth without prompting.
 - 32-bit import retains decoded floating-point values, including negatives and
   values above 1, without rescaling or clipping.
 - 16-bit import linearly rescales the global image minimum/maximum to Photoshop's
@@ -52,7 +53,7 @@ Photoshop; 32-bit import does not alter it for display, while 16-bit import appl
 only the linear min/max rescaling described above. The plug-ins do not embed
 an ICC profile, so color appearance depends on Photoshop's color settings.
 
-## Default settings
+## Plugin settings (Help menu)
 
 Open **Help → About Plug-In → FITS** (or **XISF**) on Windows.
 On macOS, use **Photoshop → About Plug-In → FITS/XISF**.
@@ -61,12 +62,21 @@ open document. Both formats share the same preferences:
 
 - **Default import depth:** Float32 or rescaled 16-bit integer.
 - **Default saved sample type:** Match document depth (default), Float32, or UInt16.
-- **Ask on every Open** and **Ask on every Save / Save As:** enable independently
-  to restore per-file choices. Revert and previews never prompt.
+- **Ask on every Open:** enabled by default. Re-enable it here to show the import
+  dialog again after remembering a choice.
+- **Ask on every Save / Save As:** disabled by default; enable for per-file export
+  overrides. Revert and previews never prompt.
 
-New installations default to Float32 import and **Match document depth** export,
-with both prompts off. Matching is resolved on every save, including after changing
-the Photoshop document mode; it does not remember an old numeric depth.
+New installations ask on every Open, with Float32 initially selected and
+**Remember choice** unchecked. Leaving it unchecked applies the choice only to
+that document and asks again next time. Checking it and confirming saves the
+selected import depth for **both FITS and XISF**, turns off **Ask on every Open**,
+and skips future import prompts. Cancel never remembers a choice. Existing saved
+preferences are preserved when upgrading.
+
+Save defaults to **Match document depth**, without prompting. Matching is resolved
+on every save, including after changing the Photoshop document mode; it does not
+remember an old numeric depth.
 For a 16-bit editing workflow, select 16-bit import, leave the saved sample type at Match document depth,
 leave both checkboxes off, and click **Save defaults**. Conversion warnings appear
 in settings before you apply a lossy default. Cancel changes nothing.
@@ -74,14 +84,16 @@ in settings before you apply a lossy default. Cancel changes nothing.
 Settings take effect for new imports and documents without remembered options.
 Revert retains a document's import choice, and Save retains its match-document policy or explicit sample-type override.
 To override an existing document's saved type, enable **Ask on every Save / Save As**
-and use Save As. One-off dialog choices do not change global defaults.
+and use Save As. Import choices change global defaults only when **Remember choice**
+is checked; one-off save choices do not change them.
 Settings survive restarts and plugin updates; changes from either plugin are
 visible to the other without restarting Photoshop.
 
 Preferences are stored per user at `%APPDATA%\Seiza\Photoshop\defaults-v1.txt`
 on Windows and `~/Library/Application Support/Seiza/Photoshop/defaults-v1.txt`
 on macOS. Missing or malformed preferences fall back to Float32 import and matching export,
-with prompts off. Settings and document options from 0.3.0 and earlier migrate
+with the Open prompt on and Save prompt off. Settings and document options from
+0.3.0 and earlier migrate
 the save type to Match document depth while retaining the import choice. The
 preferences filename stays unchanged; its contents use the version 2 schema.
 Tests use an isolated path via `SEIZA_PHOTOSHOP_PREFERENCES` and never modify

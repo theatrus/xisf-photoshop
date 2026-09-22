@@ -263,8 +263,8 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
 }
 static void checkDefaults() {
     auto initial = readDefaults();
-    require(initial.readDepth == 32 && initial.writeDepth == 0 && !initial.askOnOpen && !initial.askOnSave,
-        "Missing preferences must be quiet Float32 import / matching export");
+    require(initial.readDepth == 32 && initial.writeDepth == 0 && initial.askOnOpen && !initial.askOnSave,
+        "Missing preferences must ask on Open and match document depth on Save");
     saveDefaults({16, 32, true, false});
     auto saved = readDefaults();
     require(saved.readDepth == 16 && saved.writeDepth == 32 && saved.askOnOpen && !saved.askOnSave,
@@ -280,13 +280,18 @@ static void checkDefaults() {
         "SEIZA_DEFAULTS_V3\n16 16 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 0 0\ntrailing"}) {
         { std::ofstream file(preferencesPath()); file << content; }
         const auto value = readDefaults();
-        require(value.readDepth == 32 && value.writeDepth == 0 && !value.askOnOpen && !value.askOnSave,
-            "Malformed preferences must fall back to quiet matching export");
+        require(value.readDepth == 32 && value.writeDepth == 0 && value.askOnOpen && !value.askOnSave,
+            "Malformed preferences must ask on Open and match document depth on Save");
     }
     { std::ofstream file(preferencesPath()); file << "SEIZA_DEFAULTS_V1\n16 32 1 0\n"; }
     saved = readDefaults();
     require(saved.readDepth == 16 && saved.writeDepth == 0 && saved.askOnOpen && !saved.askOnSave,
         "Legacy settings did not migrate to matching export");
+    saveDefaults({32, 16, true, true});
+    rememberImportChoice(16);
+    saved = readDefaults();
+    require(saved.readDepth == 16 && !saved.askOnOpen && saved.writeDepth == 16 && saved.askOnSave,
+        "Remember import choice must disable Open prompts without changing export settings");
     saveDefaults({});
     require(readDefaults().writeDepth == 0, "Matching export preference did not persist");
 }
@@ -294,6 +299,7 @@ static void checkDefaults() {
 int main(int argc, char** argv) {
     try {
         const bool interactive = argc == 2 && std::strcmp(argv[1], "--interactive") == 0;
+        const bool rememberTest = argc == 2 && std::strcmp(argv[1], "--remember") == 0;
         const bool settings = argc == 2 && std::strcmp(argv[1], "--settings") == 0;
         // Never read or change the developer's actual settings during tests.
 #ifdef _WIN32
@@ -332,6 +338,18 @@ int main(int argc, char** argv) {
                 const auto saved = readDefaults();
                 std::printf("Settings after %s: read=%u write=%u askOpen=%d askSave=%d\n", format == 1 ? "FITS" : "XISF",
                     saved.readDepth, saved.writeDepth, saved.askOnOpen, saved.askOnSave);
+            }
+            else if (rememberTest) {
+                saveDefaults({});
+                std::puts("Choose 16-bit with Remember choice unchecked, then choose 16-bit with it checked.");
+                run(module, format, 3, 2, 3, 16, 0, true);
+                require(readDefaults().askOnOpen && readDefaults().readDepth == 32,
+                    "Unchecked Remember choice changed global settings");
+                run(module, format, 3, 2, 3, 16, 0, true);
+                require(!readDefaults().askOnOpen && readDefaults().readDepth == 16,
+                    "Checked Remember choice did not persist");
+                run(module, format, 3, 2, 3, 16, 0, true);
+                std::puts("Remember choice passed: unchecked asks again; checked persists and opens quietly.");
             }
             else if (interactive) run(module, format, 3, 2, 3, 16, 16, true);
             else for (uint32_t readDepth : {16u, 32u}) for (uint32_t writeDepth : {0u, 16u, 32u}) {

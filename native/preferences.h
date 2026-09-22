@@ -14,7 +14,7 @@
 struct SeizaDefaults {
     uint32_t readDepth = 32;
     uint32_t writeDepth = 0; // Match the document; 16/32 are explicit overrides.
-    bool askOnOpen = false;
+    bool askOnOpen = true;
     bool askOnSave = false;
 };
 
@@ -55,7 +55,7 @@ inline SeizaDefaults readDefaults() noexcept {
             askOpen <= 1 && askSave <= 1 && !(input >> trailing))
             // Old settings seeded a fixed save depth even without an explicit choice.
             return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0};
-    } catch (...) { /* Missing/unreadable/corrupt preferences use quiet defaults. */ }
+    } catch (...) { /* Missing/unreadable/corrupt preferences use factory defaults. */ }
     return {};
 }
 
@@ -95,4 +95,11 @@ inline void saveDefaults(const SeizaDefaults& defaults) {
         std::filesystem::remove(temporary, ignored);
         throw;
     }
+}
+
+inline void rememberImportChoice(uint32_t depth) {
+    auto defaults = readDefaults();
+    defaults.readDepth = depth;
+    defaults.askOnOpen = false;
+    saveDefaults(defaults);
 }

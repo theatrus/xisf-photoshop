@@ -17,8 +17,8 @@ def make_bundle(destination: Path, format_name: str) -> Path:
         "CFBundleName": format_name,
         "CFBundlePackageType": "8BIF",
         "CFBundleSignature": "8BIM",
-        "CFBundleVersion": "0.3.1",
-        "CFBundleShortVersionString": "0.3.1",
+        "CFBundleVersion": "0.3.2",
+        "CFBundleShortVersionString": "0.3.2",
         "LSMinimumSystemVersion": "11.0",
     }
     with (contents / "Info.plist").open("wb") as file:
@@ -27,7 +27,7 @@ def make_bundle(destination: Path, format_name: str) -> Path:
     pipl = {
         "Kind": "Format", "Name": format_name, "Version": 1, "SubVersion": 0,
         "ComponentVersionShortNum": 0, "ComponentVersionMinorRevNum": 3,
-        "ComponentVersionDotRevNum": 1, "ComponentName": name,
+        "ComponentVersionDotRevNum": 2, "ComponentName": name,
         "CodeMacARM64": "PluginMain", "CodeMacIntel64": "PluginMain",
         "SupportsPOSIXIO": True,
         "SupportedModes": {mode: mode in ("GrayScale", "RGBColor") for mode in (

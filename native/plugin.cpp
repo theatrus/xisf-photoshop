@@ -102,6 +102,7 @@ uint32_t importDepth(FormatRecord& r, State& state) {
         state.minimum = std::min(state.minimum, v);
         state.maximum = std::max(state.maximum, v);
     }
+    bool remember = false;
     if (!reverting && defaults.askOnOpen && !silent(r)) {
         std::ostringstream text;
         text << "Choose the Photoshop document depth.\n\n"
@@ -113,10 +114,11 @@ uint32_t importDepth(FormatRecord& r, State& state) {
              << "Rounding loses precision, and the original absolute scale is not retained on save.\n\n"
              << "Source range: " << state.minimum << " to " << state.maximum << ".";
         if (state.minimum == state.maximum) text << " This constant image will become zero (black).";
-        options.readDepth = chooseDepth("FITS / XISF - Open image", text.str(), options.readDepth);
+        options.readDepth = chooseDepth("FITS / XISF - Open image", text.str(), options.readDepth, &remember);
         if (!options.readDepth) throw HostError{userCanceledErr};
     }
     storeOptions(r, options);
+    if (remember) rememberImportChoice(options.readDepth);
     return options.readDepth;
 }
 

@@ -1,12 +1,34 @@
 #import <AppKit/AppKit.h>
 #include "preferences.h"
 
+uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        NSAlert* alert = [[NSAlert alloc] init];
+        alert.messageText = [NSString stringWithUTF8String:title];
+        alert.informativeText = [NSString stringWithUTF8String:message.c_str()];
+        [alert addButtonWithTitle:initial == 16 ? @"16-bit integer" : @"32-bit float"];
+        [alert addButtonWithTitle:initial == 16 ? @"32-bit float" : @"16-bit integer"];
+        [alert addButtonWithTitle:@"Cancel"];
+        if (remember) {
+            *remember = false;
+            alert.showsSuppressionButton = YES;
+            alert.suppressionButton.title = @"Remember choice";
+            alert.suppressionButton.state = NSControlStateValueOff;
+        }
+        const auto response = [alert runModal];
+        if (response != NSAlertFirstButtonReturn && response != NSAlertSecondButtonReturn) return 0;
+        if (remember) *remember = alert.suppressionButton.state == NSControlStateValueOn;
+        return response == NSAlertFirstButtonReturn ? initial : initial == 16 ? 32 : 16;
+    }
+}
+
 bool editDefaults(SeizaDefaults& defaults) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         NSAlert* alert = [[NSAlert alloc] init];
         alert.messageText = @"FITS / XISF - Default settings";
-        alert.informativeText = @"Seiza Astronomy Formats 0.3.1 - shared by FITS and XISF.\n\n"
+        alert.informativeText = @"Seiza Astronomy Formats 0.3.2 - shared by FITS and XISF.\n\n"
             @"16-bit import rescales the full image range without clipping. Photoshop retains about 15 bits plus an endpoint; precision and original absolute scale are lost.\n\n"
             @"UInt16 export rounds 0..1 to 0..65535 and clips negative/HDR values. Float32 preserves current document values but cannot recover lost import precision.\n\n"
             @"Match document depth follows the current Photoshop 16/32-bit mode.";

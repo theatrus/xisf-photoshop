@@ -5,18 +5,23 @@
 #include <string>
 
 #ifdef _WIN32
-struct SeizaDialogData { const wchar_t* title; const wchar_t* message; uint32_t depth; };
+struct SeizaDialogData { const wchar_t* title; const wchar_t* message; uint32_t depth; bool* remember; };
 inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_INITDIALOG) {
         const auto& data = *reinterpret_cast<SeizaDialogData*>(lparam);
+        SetWindowLongPtrW(window, DWLP_USER, lparam);
         SetWindowTextW(window, data.title);
         SetDlgItemTextW(window, SEIZA_OPTIONS_TEXT, data.message);
         CheckRadioButton(window, SEIZA_FLOAT_CHOICE, SEIZA_INTEGER_CHOICE,
             data.depth == 16 ? SEIZA_INTEGER_CHOICE : SEIZA_FLOAT_CHOICE);
+        ShowWindow(GetDlgItem(window, SEIZA_REMEMBER_CHOICE), data.remember ? SW_SHOW : SW_HIDE);
+        CheckDlgButton(window, SEIZA_REMEMBER_CHOICE, BST_UNCHECKED);
         return TRUE;
     }
     if (message == WM_COMMAND) {
         if (LOWORD(wparam) == IDOK) {
+            auto* data = reinterpret_cast<SeizaDialogData*>(GetWindowLongPtrW(window, DWLP_USER));
+            if (data->remember) *data->remember = IsDlgButtonChecked(window, SEIZA_REMEMBER_CHOICE) == BST_CHECKED;
             EndDialog(window, IsDlgButtonChecked(window, SEIZA_INTEGER_CHOICE) == BST_CHECKED ? 16 : 32);
             return TRUE;
         }
@@ -71,10 +76,12 @@ inline bool editDefaults(SeizaDefaults& defaults) {
 }
 #else
 bool editDefaults(SeizaDefaults& defaults);
+uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember);
 #endif
 
 // Zero means Cancel. Call only from interactive read/options selectors.
-inline uint32_t chooseDepth(const char* title, const std::string& message, uint32_t initial) {
+inline uint32_t chooseDepth(const char* title, const std::string& message, uint32_t initial, bool* remember = nullptr) {
+    if (remember) *remember = false;
 #ifdef _WIN32
     HMODULE module = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -82,28 +89,12 @@ inline uint32_t chooseDepth(const char* title, const std::string& message, uint3
         throw std::runtime_error("Cannot locate the plugin options dialog");
     const std::wstring wideTitle(title, title + std::strlen(title));
     const std::wstring wideMessage(message.begin(), message.end());
-    SeizaDialogData data{wideTitle.c_str(), wideMessage.c_str(), initial};
+    SeizaDialogData data{wideTitle.c_str(), wideMessage.c_str(), initial, remember};
     const auto result = DialogBoxParamW(module, MAKEINTRESOURCEW(SEIZA_OPTIONS_DIALOG), GetActiveWindow(),
         seizaOptionsProc, reinterpret_cast<LPARAM>(&data));
     if (result == -1) throw std::runtime_error("Cannot display the plugin options dialog");
     return static_cast<uint32_t>(result);
 #else
-    CFStringRef heading = CFStringCreateWithCString(nullptr, title, kCFStringEncodingUTF8);
-    CFStringRef text = CFStringCreateWithCString(nullptr, message.c_str(), kCFStringEncodingUTF8);
-    if (!heading || !text) {
-        if (heading) CFRelease(heading);
-        if (text) CFRelease(text);
-        throw std::bad_alloc();
-    }
-    CFOptionFlags response = kCFUserNotificationCancelResponse;
-    const auto status = CFUserNotificationDisplayAlert(0, kCFUserNotificationCautionAlertLevel,
-        nullptr, nullptr, nullptr, heading, text,
-        initial == 16 ? CFSTR("16-bit integer") : CFSTR("32-bit float"),
-        initial == 16 ? CFSTR("32-bit float") : CFSTR("16-bit integer"), CFSTR("Cancel"), &response);
-    CFRelease(heading); CFRelease(text);
-    if (status) throw std::runtime_error("Cannot display the plugin options dialog");
-    if (response == kCFUserNotificationDefaultResponse) return initial;
-    if (response == kCFUserNotificationAlternateResponse) return initial == 16 ? 32 : 16;
-    return 0;
+    return chooseDepthMac(title, message, initial, remember);
 #endif
 }
