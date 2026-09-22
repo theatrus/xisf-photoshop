@@ -104,14 +104,16 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
         // fast path. Restore these from the validated payload to preserve signed
         // scientific data; the upstream reader still owns all FITS parsing.
         let end_card = bytes
-            .chunks_exact(80)
+            .as_chunks::<80>()
+            .0
+            .iter()
             .position(|card| &card[..8] == b"END     ")
             .ok_or("Missing FITS END card")?;
         let offset = (end_card + 1).div_ceil(36) * 2880;
         let raw = bytes
             .get(offset..offset + count * 2)
             .ok_or("Truncated FITS pixels")?;
-        for (pixel, pair) in pixels.iter_mut().zip(raw.chunks_exact(2)) {
+        for (pixel, pair) in pixels.iter_mut().zip(raw.as_chunks::<2>().0) {
             *pixel = (bzero + bscale * f64::from(i16::from_be_bytes([pair[0], pair[1]]))) as f32;
         }
     }

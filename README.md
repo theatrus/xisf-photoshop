@@ -54,7 +54,7 @@ an ICC profile, so color appearance depends on Photoshop's color settings.
 
 ## Build
 
-Requires Windows x64, Rust 1.89+, Visual Studio C++ build tools, a Windows SDK,
+Requires Windows x64, Rust (pinned to 1.98.0 by `rust-toolchain.toml`), Visual Studio C++ build tools, a Windows SDK,
 and the **Adobe Photoshop C++ SDK** (not the UXP or Connection SDK).
 Adobe's [SDK download instructions](https://medium.com/adobetech/locate-and-download-the-photoshop-c-sdk-4f0e55f091ae)
 link to the [Developer Console](https://developer.adobe.com/console/servicesandapis/ps).

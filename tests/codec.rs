@@ -166,7 +166,12 @@ fn compressed_shuffled_xisf_keeps_planar_rgb_samples() {
     let pixels = [0.0f32, 0.125, 0.25, 0.5, 0.75, 1.0];
     let raw: Vec<_> = pixels.into_iter().flat_map(f32::to_le_bytes).collect();
     let shuffled: Vec<u8> = (0..4)
-        .flat_map(|byte| raw.chunks_exact(4).map(move |sample| sample[byte]))
+        .flat_map(|byte| {
+            raw.as_chunks::<4>()
+                .0
+                .iter()
+                .map(move |sample| sample[byte])
+        })
         .collect();
     for codec in ["zlib", "lz4", "zstd"] {
         let compressed = match codec {
