@@ -13,19 +13,21 @@ Get the plugins from [GitHub Releases](https://github.com/theatrus/xisf-photosho
 Release downloads are public, require no GitHub login, and do not expire like CI artifacts.
 Both FITS and XISF are included in every package.
 
-| Platform | v0.5.0 download | Installation |
+| Platform | v0.5.1 download | Installation |
 | --- | --- | --- |
-| Windows x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.0/Seiza-Photoshop-Windows-x64-Setup-0.5.0.exe) | Close Photoshop, run setup, approve the administrator prompt, then restart Photoshop. |
-| Windows x64 | [Portable plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.0/Seiza-Photoshop-Windows-x64.zip) | Close Photoshop, extract both `.8bi` files into its `Plug-ins/Seiza` folder, then restart. |
-| macOS Intel / Apple silicon | [Universal plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.0/Seiza-Photoshop-macOS-universal.zip) | Extract on your Mac, close Photoshop, copy both `.plugin` bundles from the `macos` folder into Photoshop's `Plug-ins` folder, then restart. |
+| Windows x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.1/Seiza-Photoshop-Windows-x64-Setup-0.5.1.exe) | Close Photoshop, run setup, approve the administrator prompt, then restart Photoshop. |
+| Windows x64 | [Portable plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.1/Seiza-Photoshop-Windows-x64.zip) | Close Photoshop, extract both `.8bi` files into its `Plug-ins/Seiza` folder, then restart. |
+| macOS Intel / Apple silicon | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.1/Seiza-Photoshop-macOS-universal-0.5.1.dmg) | Close Photoshop, open the DMG, drag both `.plugin` bundles onto **Photoshop Plug-ins**, approve any administrator prompt, eject, and restart Photoshop. |
+| macOS Intel / Apple silicon | [Alternative plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.1/Seiza-Photoshop-macOS-universal.zip) | Extract on your Mac and copy both `.plugin` bundles from `macos` into the shared folder described below or your Photoshop application's `Plug-ins` folder. |
 
 The Windows installer handles updates and removal of detected older manual copies;
 see [Windows installation details](#optional-windows-installer). Releases after
 v0.4.0 are Authenticode-signed as StackFoundry LLC, both the installer and the
 `.8bi` plugins inside it; v0.4.0 and earlier are unsigned, so Windows may show
 an unknown-publisher or SmartScreen prompt for those.
-The macOS bundles are Developer ID signed, notarized, and stapled. Download and
-extract the original ZIP on macOS to preserve bundle permissions and signatures.
+The macOS DMG and bundles are Developer ID signed, notarized, and stapled. The
+DMG shortcut targets Adobe's shared Plug-ins folder; see [macOS installation](#macos-installation-dmg).
+If using the alternative ZIP, extract it on macOS to preserve bundle permissions and signatures.
 Each release download has a matching `.sha256` file on the release page.
 
 Configure defaults through **Help → About Plug-In → FITS/XISF** on Windows or
@@ -340,6 +342,26 @@ already verified both real DLLs with mono/RGB/HDR pixels, a 32768-pixel-wide ima
 signature filtering, file-position restoration, cancellation/cleanup, unsupported
 save depths, and malformed files. It does not emulate Photoshop's UI or color engine.
 
+### macOS installation (DMG)
+
+Download `Seiza-Photoshop-macOS-universal-<version>.dmg`, close Photoshop, and
+open the disk image. Drag **both SeizaFITS.plugin and SeizaXISF.plugin** onto
+the **Photoshop Plug-ins** shortcut. Approve Finder's administrator prompt if
+asked, eject the disk image, and restart Photoshop.
+
+The shortcut points to `/Library/Application Support/Adobe/Plug-Ins/CC`, Adobe's
+[shared Photoshop plugin location](https://helpx.adobe.com/photoshop/kb/plug-ins-photoshop-troubleshooting.html),
+which is used by installed Photoshop CC versions and survives app upgrades.
+If that folder does not exist, create it first or copy the bundles into your
+Photoshop application's `Plug-ins` folder instead. The DMG's **Read me first.txt**
+includes these instructions. Opening the DMG does not change your system.
+
+When updating, replace the same-name bundles. If you previously installed from
+the ZIP into a Photoshop application or custom folder, remove those older
+SeizaFITS/SeizaXISF copies before using the shared folder to avoid duplicate
+format entries. To uninstall, close Photoshop and remove just these two bundles
+from their installation folder; preferences and images are left untouched.
+
 ## macOS build
 
 On a Mac, install Xcode, Rust, and Python 3, and extract the Mac Photoshop SDK:
@@ -350,7 +372,7 @@ bash scripts/build-macos.sh /path/to/photoshopsdk
 
 This builds both `aarch64-apple-darwin` and `x86_64-apple-darwin`, combines them
 with `lipo`, and creates `dist/macos/SeizaFITS.plugin` and `SeizaXISF.plugin` plus
-a universal ZIP. The modern `PiPLs.json` bundle resources follow the supplied
+a universal ZIP and an unsigned DMG with the installation shortcut. The modern `PiPLs.json` bundle resources follow the supplied
 2026 SDK's format. macOS uses Photoshop's borrowed POSIX file descriptors.
 Run this on macOS; downloading the Adobe Mac SDK alone does not provide Apple's
 compiler, macOS system headers, or the ability to test the plug-in from Windows.
@@ -369,6 +391,21 @@ submission is rejected, and staples the tickets. Leave the three `APPLE_API_*`
 variables unset to sign without notarizing. After saving your documents and
 closing Photoshop, copy the bundles into its `Plug-ins` folder and restart. The
 SDK and resource generators are never included in the bundles.
+
+To package signed bundles in a signed, notarized DMG, move the earlier unsigned
+DMG aside first, then run:
+
+```bash
+APPLE_API_KEY_PATH=~/AuthKey_KEYID.p8 APPLE_API_KEY=KEYID APPLE_API_ISSUER=ISSUER \
+  bash scripts/build-macos-dmg.sh dist/macos "Developer ID Application: Name (TEAMID)"
+```
+
+The script creates `dist/Seiza-Photoshop-macOS-universal-<version>.dmg`, signs
+and notarizes it, staples its ticket, verifies Gatekeeper acceptance, then
+mounts it read-only to check the shortcut, both architectures, signatures, and
+unchanged bundle contents. It writes the checksum after stapling. Verification
+never installs into the real Photoshop folder. Omit the identity and API
+variables for a local unsigned DMG around the existing bundles.
 
 ## Architecture and tests
 
@@ -397,8 +434,8 @@ and isolation between documents. Both platform build scripts run it before packa
 
 Use [GitHub Releases](https://github.com/theatrus/xisf-photoshop/releases/latest)
 for published versions, including the optional Windows installer, Windows plugin
-ZIP, signed universal macOS plugin ZIP, and SHA-256 files. Release assets are
-the original validated CI packages; the signed Mac ZIP is not repacked.
+ZIP, signed universal macOS DMG and alternative ZIP, and SHA-256 files. Release
+assets are the original validated CI packages; signed Mac packages are not repacked.
 
 [GitHub Actions](https://github.com/theatrus/xisf-photoshop/actions/workflows/ci.yml)
 tests the Rust backend on Windows and macOS for pushes and pull requests. Pushes
@@ -408,10 +445,10 @@ Adobe 2026 v2 SDK. Successful builds provide these artifacts (GitHub login requi
 - `Seiza-Photoshop-Windows-x64`: ZIP containing both `.8bi` plugins and docs.
 - `Seiza-Photoshop-Windows-x64-Installer`: optional setup `.exe` and SHA-256 file,
   with automatic shared-folder installation, upgrades, and uninstall support.
-- `Seiza-Photoshop-macOS-universal`: ZIP containing both `.plugin` bundles for
-  Intel and Apple silicon, Developer ID signed, notarized, and stapled, plus docs
-  and a SHA-256 file. Preserve the inner ZIP when copying it to a Mac so bundle
-  permissions and signatures survive.
+- `Seiza-Photoshop-macOS-universal`: drag-and-drop DMG and alternative ZIP with
+  both `.plugin` bundles for Intel and Apple silicon, Developer ID signed,
+  notarized, and stapled, plus docs and SHA-256 files. Preserve the original
+  DMG or inner ZIP when copying to a Mac so permissions and signatures survive.
 
 Actions artifacts are development snapshots and expire after 30 days; release
 downloads remain available. Run the workflow manually to rebuild development snapshots.
@@ -422,15 +459,17 @@ replace interactive testing in Photoshop.
 The Windows job also tests installer migration of manual copies, rollback on a
 locked file, blocking installation/uninstall while Photoshop is running (using
 a stand-in process), repeated installation, and uninstall preservation of
-backups and unrelated files. macOS continues to use the bundle ZIP for installation.
+backups and unrelated files. macOS also mounts and verifies the DMG, its
+destination shortcut, and both packaged plugin bundles without installing them.
 
 ### macOS signing
 
 The macOS plugins job uploads its ad-hoc signed bundles as a one-day
 `Seiza-Photoshop-macOS-universal-unsigned` artifact. A separate `sign-macos` job
 in the `signing` GitHub environment downloads that ZIP, imports the Developer ID
-certificate into a throwaway keychain, runs `scripts/sign-macos.sh`, and uploads
-the signed result. The environment is limited to `main` and `v*` tags, needs no
+certificate into a throwaway keychain, runs `scripts/sign-macos.sh`, then builds
+and notarizes the DMG with `scripts/build-macos-dmg.sh`. Both packages are
+uploaded with checksums. The environment is limited to `main` and `v*` tags, needs no
 manual approval, and holds six environment secrets:
 
 - `APPLE_BUILD_CERTIFICATE`: base64 Developer ID Application `.p12` with its key;

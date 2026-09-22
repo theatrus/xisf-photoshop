@@ -225,7 +225,7 @@ jobs:
     needs: plugins
     environment: signing
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -294,6 +294,13 @@ jobs:
         run: |
           ditto -c -k --sequesterRsrc --keepParent dist/macos dist/Seiza-Photoshop-macOS-universal.zip
           (cd dist && shasum -a 256 Seiza-Photoshop-macOS-universal.zip > Seiza-Photoshop-macOS-universal.zip.sha256)
+      - name: Build, sign, notarize, and verify drag-and-drop DMG
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8" \
+            bash scripts/build-macos-dmg.sh dist/macos "$CERT_ID"
       - name: Upload signed plugins
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -301,6 +308,8 @@ jobs:
           path: |
             dist/Seiza-Photoshop-macOS-universal.zip
             dist/Seiza-Photoshop-macOS-universal.zip.sha256
+            dist/Seiza-Photoshop-macOS-universal-*.dmg
+            dist/Seiza-Photoshop-macOS-universal-*.dmg.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

@@ -80,51 +80,5 @@ trap 'rm -rf "$work"' EXIT
 submission="$work/Seiza-Photoshop-notarization.zip"
 # One submission covers both bundles; each gets its own ticket to staple.
 ditto -c -k --sequesterRsrc --keepParent "$directory" "$submission"
-result="$work/submission.json"
-xcrun notarytool submit "$submission" \
-  --key "$APPLE_API_KEY_PATH" \
-  --key-id "$APPLE_API_KEY" \
-  --issuer "$APPLE_API_ISSUER" \
-  --wait \
-  --timeout 30m \
-  --output-format json > "$result" || true
-read_result() {
-  # notarytool may print progress objects before the final one; use the last.
-  python3 - "$result" "$1" <<'PY'
-import json, sys
-text = open(sys.argv[1]).read()
-decoder, index, last = json.JSONDecoder(), 0, {}
-while True:
-    start = text.find("{", index)
-    if start < 0:
-        break
-    try:
-        last, index = decoder.raw_decode(text, start)
-    except ValueError:
-        index = start + 1
-print(last.get(sys.argv[2], "") if isinstance(last, dict) else "")
-PY
-}
-submission_id="$(read_result id)"
-status="$(read_result status)"
-if [[ -z "$submission_id" ]]; then
-  echo "notarytool returned no submission id:" >&2
-  cat "$result" >&2
-  exit 1
-fi
-echo "Notarization $submission_id: ${status:-unknown}"
-if [[ "$status" != Accepted ]]; then
-  # The log names the file and reason for every rejection.
-  xcrun notarytool log "$submission_id" \
-    --key "$APPLE_API_KEY_PATH" \
-    --key-id "$APPLE_API_KEY" \
-    --issuer "$APPLE_API_ISSUER" >&2 || true
-  exit 1
-fi
-
-for bundle in "${bundles[@]}"; do
-  xcrun stapler staple "$bundle"
-  xcrun stapler validate "$bundle"
-  codesign --verify --deep --strict --verbose=4 "$bundle"
-done
+bash "$(dirname "$0")/notarize-macos.sh" "$submission" "${bundles[@]}"
 echo "Notarized and stapled ${bundles[*]}"

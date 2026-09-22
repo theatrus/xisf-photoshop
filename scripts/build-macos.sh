@@ -64,5 +64,6 @@ xcrun clang++ -std=c++17 -O2 "${includes[@]}" native/host_smoke.cpp "$host_libra
 build/native-macos/host_smoke
 cp README.md NOTICE LICENSE dist/macos/
 ditto -c -k --sequesterRsrc --keepParent dist/macos dist/Seiza-Photoshop-macOS-universal.zip
+bash scripts/build-macos-dmg.sh dist/macos
 echo 'Built dist/macos/SeizaFITS.plugin and dist/macos/SeizaXISF.plugin'
 echo 'Bundles are ad-hoc signed. Run scripts/sign-macos.sh for Developer ID signing and notarization.'

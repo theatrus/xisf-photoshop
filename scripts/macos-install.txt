@@ -1,0 +1,30 @@
+FITS and XISF for Photoshop
+
+1. Save your work and quit Photoshop.
+2. Drag BOTH SeizaFITS.plugin and SeizaXISF.plugin onto the Photoshop Plug-ins
+   shortcut in this disk image. Approve the administrator prompt if asked.
+3. Eject this disk image and restart Photoshop.
+
+The shortcut points to Adobe's shared plug-in folder:
+  /Library/Application Support/Adobe/Plug-Ins/CC
+Photoshop CC versions share this folder, so the plugins survive app upgrades.
+
+If the shortcut does not open, that folder may not exist on your Mac. You can
+instead copy both plugins into your Photoshop application's Plug-ins folder
+under Applications. Or create the shared folder above and use the shortcut.
+
+UPDATING FROM A ZIP OR AN OLDER INSTALLATION
+Replace existing copies of these two bundles when Finder asks. If you previously
+put them in a Photoshop application's Plug-ins folder or a custom plug-in folder,
+remove those old copies before using the shared folder. Keep only one active
+copy of each plugin. Do not move or remove unrelated plugins.
+
+SETTINGS
+Photoshop > About Plug-In > FITS or XISF opens the shared default settings.
+
+UNINSTALL
+Quit Photoshop and remove SeizaFITS.plugin and SeizaXISF.plugin from the folder
+where you installed them. Your preferences and image files remain untouched.
+
+The Documentation folder has the complete README, license, and third-party notices.
+https://github.com/theatrus/xisf-photoshop
