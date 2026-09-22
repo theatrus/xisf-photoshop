@@ -84,7 +84,10 @@ bool silent(const FormatRecord& r) {
 
 uint32_t importDepth(FormatRecord& r, State& state) {
     const auto& view = state.view;
+    const auto defaults = readDefaults();
     SeizaOptions options;
+    options.readDepth = defaults.readDepth;
+    options.writeDepth = defaults.writeDepth;
     const bool reverting = loadOptions(r, options);
     if (r.openForPreview) return 32;
     state.minimum = state.maximum = view.pixels[0];
@@ -94,7 +97,7 @@ uint32_t importDepth(FormatRecord& r, State& state) {
         state.minimum = std::min(state.minimum, v);
         state.maximum = std::max(state.maximum, v);
     }
-    if (!reverting && !silent(r)) {
+    if (!reverting && defaults.askOnOpen && !silent(r)) {
         std::ostringstream text;
         text << "Choose the Photoshop document depth.\n\n"
              << "32-bit float preserves the decoded values, including negative and HDR values. "
@@ -105,7 +108,7 @@ uint32_t importDepth(FormatRecord& r, State& state) {
              << "Rounding loses precision, and the original absolute scale is not retained on save.\n\n"
              << "Source range: " << state.minimum << " to " << state.maximum << ".";
         if (state.minimum == state.maximum) text << " This constant image will become zero (black).";
-        options.readDepth = chooseDepth("Seiza - Open image", text.str(), 32);
+        options.readDepth = chooseDepth("Seiza - Open image", text.str(), options.readDepth);
         if (!options.readDepth) throw HostError{userCanceledErr};
     }
     storeOptions(r, options);
@@ -113,9 +116,12 @@ uint32_t importDepth(FormatRecord& r, State& state) {
 }
 
 void writeOptions(FormatRecord& r) {
+    const auto defaults = readDefaults();
     SeizaOptions options;
+    options.readDepth = defaults.readDepth;
+    options.writeDepth = defaults.writeDepth;
     loadOptions(r, options);
-    if (!silent(r)) {
+    if (defaults.askOnSave && !silent(r)) {
         const std::string text =
             "Choose the sample format stored in the FITS/XISF file.\n\n"
             "32-bit float preserves the current document's sample values. Saving a 16-bit document "
@@ -289,6 +295,11 @@ int32_t writeBytes(void* opaque, const uint8_t* bytes, size_t length) noexcept {
 
 void writeStart(FormatRecord& r) {
     validateWrite(r);
+    SeizaOptions options;
+    if (!loadOptions(r, options)) {
+        writeOptions(r); // Some hosts skip the options sequence entirely.
+        if (!loadOptions(r, options)) options.writeDepth = readDefaults().writeDepth;
+    }
     for (int16 p = 0; p < r.planes; ++p) r.planeMap[p] = p;
     const auto w = r.HostSupports32BitCoordinates ? r.imageSize32.h : r.imageSize.h;
     const auto h = r.HostSupports32BitCoordinates ? r.imageSize32.v : r.imageSize.v;
@@ -317,8 +328,6 @@ void writeStart(FormatRecord& r) {
     file.seek(0);
     WriteContext context{&r};
     char error[1024]{};
-    SeizaOptions options;
-    loadOptions(r, options);
     if (seiza_encode_depth(kFormat, options.writeDepth, w, h, r.planes, samples.data(), count, writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);
@@ -353,12 +362,20 @@ SEIZA_EXPORT void MACPASCAL PluginMain(
     if (!result) return;
     *result = noErr;
     if (selector == formatSelectorAbout) {
+        // About uses AboutRecord, not FormatRecord. Do not dereference record.
+        try {
+            auto defaults = readDefaults();
+            if (editDefaults(defaults)) saveDefaults(defaults);
+        } catch (...) {
+            *result = formatBadParameters;
 #ifdef _WIN32
-        MessageBoxW(nullptr, L"FITS and XISF file support powered by seiza-fits and seiza-xisf.\nVersion 0.2.0", L"Seiza Astronomy Formats", MB_OK);
+            MessageBoxW(GetActiveWindow(), L"Could not save Seiza defaults. Check that your application preferences folder is writable.",
+                L"Seiza settings", MB_OK | MB_ICONERROR);
 #else
-        CFUserNotificationDisplayNotice(0, kCFUserNotificationNoteAlertLevel, nullptr, nullptr, nullptr,
-            CFSTR("Seiza Astronomy Formats"), CFSTR("FITS and XISF support powered by seiza-fits and seiza-xisf. Version 0.2.0"), CFSTR("OK"));
+            CFUserNotificationDisplayNotice(0, kCFUserNotificationStopAlertLevel, nullptr, nullptr, nullptr,
+                CFSTR("Seiza settings"), CFSTR("Could not save Seiza defaults. Check that your application preferences folder is writable."), CFSTR("OK"));
 #endif
+        }
         return;
     }
     if (!record || !persistent) { *result = formatBadParameters; return; }

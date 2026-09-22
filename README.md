@@ -16,22 +16,24 @@ not redistributed.
 
 ## Supported image workflow
 
-- Open `.fits`, `.fit`, `.fts`, and `.xisf` into grayscale or RGB. The import
-  dialog offers **32-bit float** (default) or **16-bit integer**.
+- Open `.fits`, `.fit`, `.fts`, and `.xisf` into grayscale or RGB using the saved
+  **32-bit float** or **16-bit integer** import default. Open and Save are quiet
+  by default; change preferences using the settings entry below.
 - 32-bit import retains decoded floating-point values, including negatives and
   values above 1, without rescaling or clipping.
 - 16-bit import linearly rescales the global image minimum/maximum to Photoshop's
   internal **0..32768** range and rounds to integers. All RGB channels share one
   range; there is no per-channel stretching or clipping. Constant images become
-  zero. The dialog shows the source range and warns that original absolute scale
-  and precision will be lost. No gamma conversion or debayering is applied.
+  zero. Settings explain the loss of original absolute scale and precision;
+  optional per-file dialogs also show the source range. No gamma conversion or
+  debayering is applied.
 - Save **16- or 32-bit** grayscale/RGB documents as either Float32 (default) or
-  UInt16 FITS/XISF using the save-options dialog. Eight-bit documents must first
+  UInt16 FITS/XISF using the saved export default. Eight-bit documents must first
   be converted via **Image → Mode → 16 Bits/Channel** or **32 Bits/Channel**.
 - Float32 output preserves the current document's sample values; it does
   not restore the original scale or precision after a 16-bit import. UInt16
   output rounds 0..1 to 0..65535. Exporting a 32-bit document as UInt16 clips
-  negative/HDR values, with this loss stated in the save dialog. Import rescaling
+  negative/HDR values, with this loss stated in settings and the optional save dialog. Import rescaling
   already puts 16-bit documents into the valid range.
 - Unsigned integer camera data uses a fixed full-scale divisor: 255 for 8-bit,
   65535 for 16-bit, and 4294967295 for XISF UInt32. Signed FITS integers and
@@ -48,6 +50,36 @@ Photoshop; 32-bit import does not alter it for display, while 16-bit import appl
 only the linear min/max rescaling described above. The plug-ins do not embed
 an ICC profile, so color appearance depends on Photoshop's color settings.
 
+## Default settings
+
+Open **Help → About Plug-In → Seiza FITS** (or **Seiza XISF**) on Windows.
+On macOS, use **Photoshop → About Plug-In → Seiza FITS/XISF**.
+The plugin's About entry opens **Seiza - Default settings**; it works without an
+open document. Both formats share the same preferences:
+
+- **Default import depth:** Float32 or rescaled 16-bit integer.
+- **Default saved sample type:** Float32 or UInt16.
+- **Ask on every Open** and **Ask on every Save / Save As:** enable independently
+  to restore per-file choices. Revert and previews never prompt.
+
+New installations default to Float32 for both operations with both prompts off.
+For a 16-bit editing workflow, select 16-bit import, choose your saved sample type,
+leave both checkboxes off, and click **Save defaults**. Conversion warnings appear
+in settings before you apply a lossy default. Cancel changes nothing.
+
+Settings take effect for new imports and documents without remembered options.
+Revert retains a document's import choice, and Save retains its saved sample type.
+To override an existing document's saved type, enable **Ask on every Save / Save As**
+and use Save As. One-off dialog choices do not change global defaults.
+Settings survive restarts and plugin updates; changes from either plugin are
+visible to the other without restarting Photoshop.
+
+Preferences are stored per user at `%APPDATA%\Seiza\Photoshop\defaults-v1.txt`
+on Windows and `~/Library/Application Support/Seiza/Photoshop/defaults-v1.txt`
+on macOS. Missing or malformed preferences fall back to quiet Float32 defaults.
+Tests use an isolated path via `SEIZA_PHOTOSHOP_PREFERENCES` and never modify
+your actual settings.
+
 ## Current limits
 
 - CI builds Windows x64 and universal macOS. Automated host tests run on Windows
@@ -62,9 +94,9 @@ an ICC profile, so color appearance depends on Photoshop's color settings.
 - XISF output is uncompressed Float32 or UInt16. FITS output uses `BITPIX=-32`
   for Float32, or `BITPIX=16`, `BZERO=32768`, `BSCALE=1` for unsigned integer data.
 - Revert reuses the import choice. Ordinary Save reuses the output choice when
-  Photoshop skips its options dialog; use Save As to select another type.
+  Photoshop skips its options dialog; enable the save prompt and use Save As to select another type.
   Dialog-suppressed automation uses remembered document options, otherwise
-  defaults to Float32. Custom choices are not recorded in Actions descriptors yet.
+  uses saved defaults. Custom choices are not recorded in Actions descriptors yet.
   Preview reads are always Float32 and never display a dialog.
 - The first implementation retains the encoded input and decoded image in memory
   while opening; saving retains a planar f32 image. It is not an out-of-core codec.
@@ -114,7 +146,8 @@ Generate known test images:
 cargo run --locked --example make_fixtures
 ```
 
-1. Open all four images in `build/fixtures`. Try both import depths and verify
+1. Configure import defaults in About Plug-In (or enable **Ask on every Open**).
+   Open all four images in `build/fixtures`. Try both import depths and verify
    128×96 dimensions and grayscale/RGB channels. Mono is a left-to-right ramp. RGB has red increasing
    left-to-right, green increasing top-to-bottom, and blue only in the upper-left.
 2. Save copies using each Seiza format and output depth. Float32 retains document

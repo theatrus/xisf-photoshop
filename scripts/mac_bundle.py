@@ -17,8 +17,8 @@ def make_bundle(destination: Path, format_name: str) -> Path:
         "CFBundleName": name,
         "CFBundlePackageType": "8BIF",
         "CFBundleSignature": "8BIM",
-        "CFBundleVersion": "0.2.0",
-        "CFBundleShortVersionString": "0.2.0",
+        "CFBundleVersion": "0.3.0",
+        "CFBundleShortVersionString": "0.3.0",
         "LSMinimumSystemVersion": "11.0",
     }
     with (contents / "Info.plist").open("wb") as file:
@@ -26,7 +26,7 @@ def make_bundle(destination: Path, format_name: str) -> Path:
     extensions = ["fits", "fit ", "fts "] if format_name == "FITS" else ["xisf"]
     pipl = {
         "Kind": "Format", "Name": "Seiza " + format_name, "Version": 1, "SubVersion": 0,
-        "ComponentVersionShortNum": 0, "ComponentVersionMinorRevNum": 2,
+        "ComponentVersionShortNum": 0, "ComponentVersionMinorRevNum": 3,
         "ComponentVersionDotRevNum": 0, "ComponentName": name,
         "CodeMacARM64": "PluginMain", "CodeMacIntel64": "PluginMain",
         "SupportsPOSIXIO": True,

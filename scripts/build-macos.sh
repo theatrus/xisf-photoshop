@@ -32,12 +32,14 @@ for arch in arm64 x86_64; do
   [[ "$arch" == arm64 ]] && target=aarch64-apple-darwin
   cargo build --locked --release --target "$target"
   library="target/$target/release/libseiza_photoshop.a"
+  xcrun clang++ -std=c++17 -O2 -fobjc-arc -fvisibility=hidden -arch "$arch" -mmacosx-version-min=11.0 \
+    -c native/settings_mac.mm -o "build/native-macos/settings-${arch}.o"
   for format in FITS XISF; do
     id=1
     [[ "$format" == XISF ]] && id=2
     xcrun clang++ -std=c++17 -O2 -fvisibility=hidden -arch "$arch" -mmacosx-version-min=11.0 \
-      -bundle -DSEIZA_FORMAT="$id" "${includes[@]}" native/plugin.cpp "$library" \
-      -framework CoreFoundation -framework Security -framework SystemConfiguration -liconv \
+      -bundle -DSEIZA_FORMAT="$id" "${includes[@]}" native/plugin.cpp "build/native-macos/settings-${arch}.o" "$library" \
+      -framework AppKit -framework CoreFoundation -framework Security -framework SystemConfiguration -liconv \
       -o "build/native-macos/Seiza${format}-${arch}"
   done
 done
