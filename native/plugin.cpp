@@ -46,29 +46,32 @@ bool canStoreOptions(const FormatRecord& r) {
 }
 
 bool loadOptions(FormatRecord& r, SeizaOptions& options) {
-    if (!r.revertInfo || !canStoreOptions(r) ||
-        r.handleProcs->getSizeProc(r.revertInfo) != sizeof(SeizaOptions)) return false;
+    if (!r.revertInfo || !canStoreOptions(r)) return false;
+    const auto size = r.handleProcs->getSizeProc(r.revertInfo);
+    if (size != 16 && size != sizeof(SeizaOptions)) return false;
     auto* data = r.handleProcs->lockProc(r.revertInfo, false);
     if (!data) throw std::bad_alloc();
     SeizaOptions stored;
-    std::memcpy(&stored, data, sizeof(stored));
+    std::memcpy(&stored, data, static_cast<size_t>(size));
     r.handleProcs->unlockProc(r.revertInfo);
-    if (stored.magic != options.magic || (stored.version != 1 && stored.version != options.version) ||
+    if (stored.magic != options.magic || stored.version < 1 || stored.version > options.version ||
+        (stored.version == 3 && size != sizeof(stored)) || stored.debayer > 5 ||
         (stored.readDepth != 16 && stored.readDepth != 32) ||
         (stored.writeDepth != 16 && stored.writeDepth != 32 &&
-            !(stored.version == 2 && stored.writeDepth == 0))) return false;
+            !(stored.version >= 2 && stored.writeDepth == 0))) return false;
     if (stored.version == 1) {
-        stored.version = options.version;
         stored.writeDepth = 0;
     }
+    if (stored.version < 3) stored.debayer = 0;
+    stored.version = options.version;
     options = stored;
     return true;
 }
 
 void storeOptions(FormatRecord& r, const SeizaOptions& options) {
     if (!canStoreOptions(r)) {
-        if (options.readDepth == 16 || options.writeDepth == 16)
-            throw std::runtime_error("Photoshop's handle suite is required to remember 16-bit conversion options");
+        if (options.readDepth == 16 || options.writeDepth == 16 || options.debayer)
+            throw std::runtime_error("Photoshop's handle suite is required to remember conversion options");
         return;
     }
     auto& h = *r.handleProcs;
@@ -93,8 +96,9 @@ uint32_t importDepth(FormatRecord& r, State& state) {
     SeizaOptions options;
     options.readDepth = defaults.readDepth;
     options.writeDepth = defaults.writeDepth;
+    options.debayer = defaults.debayer;
     const bool reverting = loadOptions(r, options);
-    if (r.openForPreview) return 32;
+    const bool singleChannel = view.planes == 1;
     state.minimum = state.maximum = view.pixels[0];
     for (size_t i = 0; i < view.samples; ++i) {
         if (i % kIoChunk == 0 && r.abortProc && r.abortProc()) throw HostError{userCanceledErr};
@@ -114,12 +118,32 @@ uint32_t importDepth(FormatRecord& r, State& state) {
              << "Rounding loses precision, and the original absolute scale is not retained on save.\n\n"
              << "Source range: " << state.minimum << " to " << state.maximum << ".";
         if (state.minimum == state.maximum) text << " This constant image will become zero (black).";
-        options.readDepth = chooseDepth("FITS / XISF - Open image", text.str(), options.readDepth, &remember);
+        if (singleChannel) {
+            static const char* patterns[] = {"No Bayer metadata", "RGGB", "BGGR", "GRBG", "GBRG", "Unsupported Bayer metadata"};
+            text << "\n\nCFA: " << patterns[std::min(view.cfa_pattern, 5u)] << ". Offsets: "
+                 << view.cfa_x_offset << ", " << view.cfa_y_offset << ". Debayer uses bilinear interpolation before rescaling.";
+            text << " Remember choice saves Raw or Auto globally; manual patterns stay with this document.";
+            if (view.cfa_invalid_offsets) text << " Invalid offsets: open raw or correct the source headers.";
+        }
+        options.readDepth = chooseDepth("FITS / XISF - Open image", text.str(), options.readDepth, &remember,
+            singleChannel ? &options.debayer : nullptr);
         if (!options.readDepth) throw HostError{userCanceledErr};
     }
-    storeOptions(r, options);
-    if (remember) rememberImportChoice(options.readDepth);
-    return options.readDepth;
+    char error[1024]{};
+    if (seiza_image_debayer(state.image.get(), options.debayer, error, sizeof(error))) throw std::runtime_error(error);
+    if (seiza_image_view(state.image.get(), &state.view)) throw std::runtime_error("Invalid debayered image");
+    // The shared RGB range must be measured after interpolation, before quantizing.
+    state.minimum = state.maximum = view.pixels[0];
+    for (size_t i = 0; i < view.samples; ++i) {
+        if (i % kIoChunk == 0 && r.abortProc && r.abortProc()) throw HostError{userCanceledErr};
+        state.minimum = std::min(state.minimum, static_cast<double>(view.pixels[i]));
+        state.maximum = std::max(state.maximum, static_cast<double>(view.pixels[i]));
+    }
+    if (!r.openForPreview) {
+        storeOptions(r, options);
+        if (remember) rememberImportChoice(options.readDepth, singleChannel ? options.debayer : UINT32_MAX);
+    }
+    return r.openForPreview ? 32 : options.readDepth;
 }
 
 void writeOptions(FormatRecord& r) {
@@ -234,8 +258,8 @@ void readStart(FormatRecord& r, intptr_t& persistent) {
     state->image.reset(decoded);
     if (seiza_image_view(decoded, &state->view)) throw std::runtime_error("Invalid decoded image");
     coordinates(r, state->view.width, state->view.height);
-    r.imageMode = state->view.planes == 1 ? plugInModeGrayScale : plugInModeRGBColor;
     state->depth = importDepth(r, *state);
+    r.imageMode = state->view.planes == 1 ? plugInModeGrayScale : plugInModeRGBColor;
     r.depth = static_cast<int16>(state->depth);
     if (r.depth == 16) {
         r.maxValue = 32768;

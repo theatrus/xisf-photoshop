@@ -41,6 +41,7 @@ fn float_roundtrips_preserve_hdr_negatives_orientation_and_planes() {
         for planes in [1, 3] {
             let pixels = (0..6 * planes).map(|i| i as f32 / 8.0 - 0.25).collect();
             let image = Image {
+                cfa: Default::default(),
                 width: 3,
                 height: 2,
                 planes,
@@ -198,6 +199,7 @@ fn invalid_data_and_unsupported_cubes_are_errors() {
     for format in [Format::Fits, Format::Xisf] {
         assert!(decode(format, b"not an image").is_err());
         let image = Image {
+            cfa: Default::default(),
             width: 2,
             height: 1,
             planes: 1,
@@ -220,24 +222,28 @@ fn encoding_checks_dimensions_length_and_nonfinite_samples() {
     for format in [Format::Fits, Format::Xisf] {
         for image in [
             Image {
+                cfa: Default::default(),
                 width: 0,
                 height: 1,
                 planes: 1,
                 pixels: vec![],
             },
             Image {
+                cfa: Default::default(),
                 width: 1,
                 height: 1,
                 planes: 4,
                 pixels: vec![0.0; 4],
             },
             Image {
+                cfa: Default::default(),
                 width: 2,
                 height: 1,
                 planes: 1,
                 pixels: vec![0.0],
             },
             Image {
+                cfa: Default::default(),
                 width: 1,
                 height: 1,
                 planes: 1,

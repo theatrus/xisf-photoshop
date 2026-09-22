@@ -2,6 +2,7 @@
 //! Float samples retain physical values; unsigned 8/16-bit camera samples use
 //! their fixed full-scale range. There is no histogram normalization or stretch.
 
+pub mod debayer;
 pub mod ffi;
 mod integer_writer;
 
@@ -45,6 +46,7 @@ pub struct Image {
     pub height: usize,
     pub planes: usize,
     pub pixels: Vec<f32>,
+    pub cfa: debayer::CfaInfo,
 }
 
 pub fn sample_count(width: usize, height: usize, planes: usize) -> Result<usize> {
@@ -86,6 +88,7 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
         }
     }
     let (width, height, planes) = (image.width, image.height, image.planes);
+    let cfa = debayer::CfaInfo::from_image(&image);
     let count = sample_count(width, height, planes)?;
     let bzero = image.header_f64("BZERO").unwrap_or(0.0);
     let bscale = image.header_f64("BSCALE").unwrap_or(1.0);
@@ -136,6 +139,7 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
         height,
         planes,
         pixels,
+        cfa,
     })
 }
 

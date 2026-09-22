@@ -4,35 +4,40 @@
 #define SEIZA_FLOAT_CHOICE 17002
 #define SEIZA_INTEGER_CHOICE 17003
 #define SEIZA_REMEMBER_CHOICE 17004
+#define SEIZA_DEBAYER_LABEL 17005
+#define SEIZA_DEBAYER_CHOICE 17006
 
-SEIZA_OPTIONS_DIALOG DIALOGEX 0, 0, 340, 227
+SEIZA_OPTIONS_DIALOG DIALOGEX 0, 0, 340, 290
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Seiza Astronomy Formats"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT "", SEIZA_OPTIONS_TEXT, 12, 12, 316, 125
-    AUTORADIOBUTTON "32-bit floating point", SEIZA_FLOAT_CHOICE, 12, 143, 305, 12, WS_GROUP | WS_TABSTOP
-    AUTORADIOBUTTON "16-bit integer", SEIZA_INTEGER_CHOICE, 12, 161, 305, 12
-    AUTOCHECKBOX "Remember choice", SEIZA_REMEMBER_CHOICE, 12, 183, 180, 12
-    DEFPUSHBUTTON "OK", IDOK, 214, 205, 54, 14
-    PUSHBUTTON "Cancel", IDCANCEL, 274, 205, 54, 14
+    LTEXT "", SEIZA_OPTIONS_TEXT, 12, 12, 316, 160
+    AUTORADIOBUTTON "32-bit floating point", SEIZA_FLOAT_CHOICE, 12, 178, 305, 12, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "16-bit integer", SEIZA_INTEGER_CHOICE, 12, 196, 305, 12
+    LTEXT "Color filter array", SEIZA_DEBAYER_LABEL, 12, 216, 100, 12
+    COMBOBOX SEIZA_DEBAYER_CHOICE, 12, 230, 316, 95, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX "Remember choice", SEIZA_REMEMBER_CHOICE, 12, 250, 180, 12
+    DEFPUSHBUTTON "OK", IDOK, 214, 268, 54, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 274, 268, 54, 14
 END
 
-17100 DIALOGEX 0, 0, 360, 240
+17100 DIALOGEX 0, 0, 360, 262
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "FITS / XISF - Default settings"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT "Seiza Astronomy Formats 0.3.2 - shared by FITS and XISF", -1, 12, 10, 336, 14
+    LTEXT "Seiza Astronomy Formats 0.4.0 - shared by FITS and XISF", -1, 12, 10, 336, 14
     LTEXT "Default import depth", -1, 12, 34, 120, 12
     COMBOBOX 17101, 142, 31, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     AUTOCHECKBOX "Ask on every Open", 17103, 142, 54, 200, 12
-    LTEXT "Default saved sample type", -1, 12, 80, 126, 12
-    COMBOBOX 17102, 142, 77, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    AUTOCHECKBOX "Ask on every Save / Save As", 17104, 142, 100, 200, 12
-    LTEXT "16-bit import rescales the full image range without clipping. Photoshop retains about 15 bits plus an endpoint; precision and original absolute scale are lost.", -1, 12, 124, 336, 32
-    LTEXT "UInt16 export rounds 0..1 to 0..65535 and clips negative/HDR values. Float32 preserves current document values but cannot recover lost import precision.", -1, 12, 161, 336, 32
-    LTEXT "Match document depth follows the current Photoshop 16/32-bit mode.", -1, 12, 201, 336, 12
-    DEFPUSHBUTTON "Save defaults", IDOK, 194, 220, 78, 14
-    PUSHBUTTON "Cancel", IDCANCEL, 280, 220, 68, 14
+    AUTOCHECKBOX "Debayer tagged images to RGB (bilinear)", 17105, 12, 76, 336, 12
+    LTEXT "Default saved sample type", -1, 12, 102, 126, 12
+    COMBOBOX 17102, 142, 99, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX "Ask on every Save / Save As", 17104, 142, 122, 200, 12
+    LTEXT "16-bit import rescales the full image range without clipping. Photoshop retains about 15 bits plus an endpoint; precision and original absolute scale are lost.", -1, 12, 146, 336, 32
+    LTEXT "UInt16 export rounds 0..1 to 0..65535 and clips negative/HDR values. Float32 preserves current document values but cannot recover lost import precision.", -1, 12, 183, 336, 32
+    LTEXT "Match document depth follows the current Photoshop 16/32-bit mode.", -1, 12, 223, 336, 12
+    DEFPUSHBUTTON "Save defaults", IDOK, 194, 242, 78, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 280, 242, 68, 14
 END

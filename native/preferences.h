@@ -16,6 +16,7 @@ struct SeizaDefaults {
     uint32_t writeDepth = 0; // Match the document; 16/32 are explicit overrides.
     bool askOnOpen = true;
     bool askOnSave = false;
+    uint32_t debayer = 1; // Auto for recognized metadata. Never remember a forced pattern globally.
 };
 
 inline std::filesystem::path preferencesPath() {
@@ -48,20 +49,22 @@ inline SeizaDefaults readDefaults() noexcept {
         std::ifstream input(preferencesPath());
         std::string signature, trailing;
         unsigned read = 0, write = 0, askOpen = 0, askSave = 0;
-        if (input >> signature >> read >> write >> askOpen >> askSave &&
-            (signature == "SEIZA_DEFAULTS_V1" || signature == "SEIZA_DEFAULTS_V2") &&
+        unsigned debayer = 0; // Preserve raw imports when migrating older preferences.
+        if (!(input >> signature >> read >> write >> askOpen >> askSave)) return {};
+        if (signature == "SEIZA_DEFAULTS_V3" && !(input >> debayer)) return {};
+        if ((signature == "SEIZA_DEFAULTS_V1" || signature == "SEIZA_DEFAULTS_V2" || signature == "SEIZA_DEFAULTS_V3") &&
             (read == 16 || read == 32) && (write == 16 || write == 32 ||
-            (write == 0 && signature == "SEIZA_DEFAULTS_V2")) &&
-            askOpen <= 1 && askSave <= 1 && !(input >> trailing))
+            (write == 0 && signature != "SEIZA_DEFAULTS_V1")) &&
+            askOpen <= 1 && askSave <= 1 && debayer <= 1 && !(input >> trailing))
             // Old settings seeded a fixed save depth even without an explicit choice.
-            return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0};
+            return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0, debayer};
     } catch (...) { /* Missing/unreadable/corrupt preferences use factory defaults. */ }
     return {};
 }
 
 inline void saveDefaults(const SeizaDefaults& defaults) {
     if ((defaults.readDepth != 16 && defaults.readDepth != 32) ||
-        (defaults.writeDepth != 0 && defaults.writeDepth != 16 && defaults.writeDepth != 32))
+        (defaults.writeDepth != 0 && defaults.writeDepth != 16 && defaults.writeDepth != 32) || defaults.debayer > 1)
         throw std::runtime_error("Invalid Seiza default sample type");
     const auto path = preferencesPath();
     if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path());
@@ -77,8 +80,8 @@ inline void saveDefaults(const SeizaDefaults& defaults) {
     try {
         {
             std::ofstream output(temporary, std::ios::trunc);
-            output << "SEIZA_DEFAULTS_V2\n" << defaults.readDepth << ' ' << defaults.writeDepth
-                   << ' ' << defaults.askOnOpen << ' ' << defaults.askOnSave << '\n';
+            output << "SEIZA_DEFAULTS_V3\n" << defaults.readDepth << ' ' << defaults.writeDepth
+                   << ' ' << defaults.askOnOpen << ' ' << defaults.askOnSave << ' ' << defaults.debayer << '\n';
             output.flush();
             if (!output) throw std::runtime_error("Cannot write Seiza preferences");
             output.close();
@@ -97,9 +100,10 @@ inline void saveDefaults(const SeizaDefaults& defaults) {
     }
 }
 
-inline void rememberImportChoice(uint32_t depth) {
+inline void rememberImportChoice(uint32_t depth, uint32_t debayer = UINT32_MAX) {
     auto defaults = readDefaults();
     defaults.readDepth = depth;
     defaults.askOnOpen = false;
+    if (debayer != UINT32_MAX) defaults.debayer = debayer ? 1 : 0;
     saveDefaults(defaults);
 }

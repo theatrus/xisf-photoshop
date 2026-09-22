@@ -9,7 +9,7 @@ Windows, `.plugin` on macOS), with entries in Photoshop's Open and Save dialogs.
 
 **Development status:** Initial test builds for Windows x64 and universal macOS
 (Intel and Apple silicon), compiled against Adobe's 2026 SDK v2. CI gates plugin
-downloads on twelve Rust tests, a compiled C++/Rust ABI test, and a host harness
+downloads on seventeen Rust tests, a compiled C++/Rust ABI test, and a host harness
 that loads both plugins and exercises Adobe's `FormatRecord` interface.
 Live Photoshop validation remains pending. CI macOS bundles are Developer ID
 signed, notarized, and stapled; local builds are ad-hoc signed. Plaintext SDKs
@@ -27,8 +27,8 @@ are not redistributed.
   internal **0..32768** range and rounds to integers. All RGB channels share one
   range; there is no per-channel stretching or clipping. Constant images become
   zero. Settings explain the loss of original absolute scale and precision;
-  optional per-file dialogs also show the source range. No gamma conversion or
-  debayering is applied.
+  optional per-file dialogs also show the source range. No gamma conversion is applied. When enabled, debayering runs in Float32
+  before measuring the shared RGB range and converting to 16-bit.
 - Save **16- or 32-bit** grayscale/RGB documents at their current Photoshop depth
   by default: 16-bit becomes UInt16, and 32-bit becomes Float32. Settings also
   offer explicit Float32 or UInt16 overrides. Eight-bit documents must first
@@ -61,6 +61,8 @@ The plugin's About entry opens **FITS / XISF - Default settings**; it works with
 open document. Both formats share the same preferences:
 
 - **Default import depth:** Float32 or rescaled 16-bit integer.
+- **Debayer tagged images to RGB (bilinear):** automatically converts recognized
+  Bayer mosaics; untagged monochrome and existing RGB files stay unchanged.
 - **Default saved sample type:** Match document depth (default), Float32, or UInt16.
 - **Ask on every Open:** enabled by default. Re-enable it here to show the import
   dialog again after remembering a choice.
@@ -95,9 +97,43 @@ on macOS. Missing or malformed preferences fall back to Float32 import and match
 with the Open prompt on and Save prompt off. Settings and document options from
 0.3.0 and earlier migrate
 the save type to Match document depth while retaining the import choice. The
-preferences filename stays unchanged; its contents use the version 2 schema.
+preferences filename stays unchanged; its contents use the version 3 schema.
+Older preferences and document options retain raw grayscale imports until you
+choose to enable debayering.
 Tests use an isolated path via `SEIZA_PHOTOSHOP_PREFERENCES` and never modify
 your actual settings.
+
+## Bayer / CFA import
+
+For single-channel files, the Open dialog adds a **Color filter array** selector:
+
+- **Keep raw grayscale:** preserves the sensor mosaic without interpolation.
+- **Debayer to RGB - Auto (metadata):** uses recognized FITS `BAYERPAT` or XISF
+  `ColorFilterArray` / FITS-compatible metadata. Auto is the fresh-install default.
+  Missing or unsupported patterns stay grayscale; no pattern is inferred from pixels.
+- **RGGB / BGGR / GRBG / GBRG:** explicit manual overrides for missing or incorrect
+  pattern metadata. The dialog displays the detected pattern and origin offsets.
+
+Bayer patterns describe the stored pixel order. `XBAYROFF` and `YBAYROFF` are
+honored modulo two, including negative offsets; the plugin does not guess a row
+flip from camera conventions. Invalid offsets and images narrower or shorter
+than two pixels must be opened raw or corrected before conversion.
+
+Conversion uses `seiza-fits` bilinear interpolation in linear Float32, preserving
+measured samples and negative/HDR values. It creates full-size planar RGB before
+any 16-bit min/max rescaling. Existing RGB images hide these controls and are
+never debayered again. Previews use the configured conversion without prompting;
+Revert retains the document's conversion and manual pattern.
+
+**Remember choice** saves raw versus automatic debayering along with import depth.
+A manual pattern is retained for that document's Revert, but remembering it globally
+selects **Auto** for future files so unrelated monochrome data is not forced through
+the same Bayer pattern. Use **Help -> About Plug-In -> FITS/XISF** on Windows (the
+**Photoshop -> About Plug-In** menu on macOS) to change the shared default later.
+
+Saved debayered images contain RGB samples, not a Bayer mosaic. Raw grayscale
+exports do not preserve CFA tags or other source metadata; keep the original
+scientific file if you need to debayer it again later.
 
 ## Current limits
 
@@ -106,7 +142,9 @@ your actual settings.
   still required on each supported architecture.
 - FITS primary HDU only; extra HDUs are not opened. XISF opens its first image.
   FITS cubes other than one/three planes are rejected.
-- Bayer/CFA data opens as grayscale; debayer before opening if you need color.
+- Debayering supports the four 2-by-2 Bayer patterns using bilinear interpolation.
+  Other CFA layouts (such as X-Trans) are not automatically converted. No white
+  balance, camera color matrix, gamma correction, or advanced demosaic method is applied.
 - Save stores one flattened image. Layers, alpha channels, masks, WCS/acquisition
   headers, XISF properties, ICC profiles, and other metadata are not round-tripped.
   Keep an original scientific image and use PSD/PSB for layered Photoshop work.

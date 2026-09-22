@@ -57,7 +57,8 @@ try {
         & cl.exe /nologo /std:c++17 /EHsc /O2 /MD /W4 /LD /DWIN32=1 /DMSWindows=1 "/DSEIZA_FORMAT=$($format.Id)" @includeArgs native\plugin.cpp "/Fo$base.obj" /link "$base.res" build\native\options.res $rustLib ws2_32.lib userenv.lib bcrypt.lib ntdll.lib advapi32.lib user32.lib "/OUT:dist\$name.8bi" "/IMPLIB:$base.lib"
         if ($LASTEXITCODE) { throw "Plug-in compilation failed: $name" }
     }
-    & cl.exe /nologo /std:c++17 /EHsc /O2 /MD /DWIN32=1 /DMSWindows=1 @includeArgs native\host_smoke.cpp /Fobuild\native\host_smoke.obj /Febuild\native\host_smoke.exe /link $rustLib ws2_32.lib userenv.lib bcrypt.lib ntdll.lib advapi32.lib
+    # MSVC can hit C1001 optimizing this large test harness; shipped plugins stay /O2.
+    & cl.exe /nologo /std:c++17 /EHsc /Od /MD /DWIN32=1 /DMSWindows=1 @includeArgs native\host_smoke.cpp /Fobuild\native\host_smoke.obj /Febuild\native\host_smoke.exe /link $rustLib ws2_32.lib userenv.lib bcrypt.lib ntdll.lib advapi32.lib
     if ($LASTEXITCODE) { throw 'Adobe SDK host harness compilation failed' }
     & .\build\native\host_smoke.exe
     if ($LASTEXITCODE) { throw 'Adobe SDK host harness failed' }

@@ -14,6 +14,10 @@ pub struct ImageView {
     pub planes: u32,
     pub samples: usize,
     pub pixels: *const f32,
+    pub cfa_pattern: u32,
+    pub cfa_x_offset: u32,
+    pub cfa_y_offset: u32,
+    pub cfa_invalid_offsets: u32,
 }
 
 fn boundary(error: *mut c_char, capacity: usize, f: impl FnOnce() -> crate::Result<()>) -> i32 {
@@ -81,9 +85,29 @@ pub unsafe extern "C" fn seiza_image_view(image: *const Image, view: *mut ImageV
             planes: image.planes as u32,
             samples: image.pixels.len(),
             pixels: image.pixels.as_ptr(),
+            cfa_pattern: image.cfa.pattern,
+            cfa_x_offset: image.cfa.x_offset,
+            cfa_y_offset: image.cfa.y_offset,
+            cfa_invalid_offsets: u32::from(image.cfa.invalid_offsets),
         };
     }
     0
+}
+
+/// # Safety
+/// `image` is an exclusively borrowed live decoded image. Error follows seiza_decode.
+/// Success may invalidate all previously borrowed pixel views; request a new view.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_image_debayer(
+    image: *mut Image,
+    mode: u32,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
+    boundary(error, capacity, || {
+        let image = unsafe { image.as_mut() }.ok_or("Null image")?;
+        crate::debayer::apply(image, mode)
+    })
 }
 
 /// # Safety

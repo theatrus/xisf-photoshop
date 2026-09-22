@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let image = Image {
+            cfa: Default::default(),
             width,
             height,
             planes,
