@@ -45,7 +45,7 @@ for format in FITS XISF; do
   bundle="dist/macos/Seiza${format}.plugin"
   xcrun lipo -create "build/native-macos/Seiza${format}-arm64" "build/native-macos/Seiza${format}-x86_64" \
     -output "$bundle/Contents/MacOS/Seiza${format}"
-  xcrun lipo -verify_arch arm64 x86_64 "$bundle/Contents/MacOS/Seiza${format}"
+  xcrun lipo "$bundle/Contents/MacOS/Seiza${format}" -verify_arch arm64 x86_64
   codesign --force --sign "${CODE_SIGN_IDENTITY:--}" "$bundle"
   codesign --verify --strict "$bundle"
 done
