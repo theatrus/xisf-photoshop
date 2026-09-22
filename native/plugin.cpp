@@ -10,6 +10,7 @@
 #endif
 #include "PIDefines.h"
 #include "PIFormat.h"
+#include "PIProperties.h"
 #include "seiza_codec.h"
 #include "host_file.h"
 #include <algorithm>
@@ -43,6 +44,62 @@ bool canStoreOptions(const FormatRecord& r) {
     const auto* h = r.handleProcs;
     return h && h->handleProcsVersion >= 1 && h->numHandleProcs >= 6 &&
         h->newProc && h->disposeProc && h->getSizeProc && h->lockProc && h->unlockProc;
+}
+
+struct OwnedHandle {
+    Handle value;
+    HandleProcs* procs;
+    ~OwnedHandle() { if (value) procs->disposeProc(value); }
+};
+
+void requireMetadataSuite(const FormatRecord& r) {
+    if (!canStoreOptions(r) || !r.propertyProcs || r.propertyProcs->numPropertyProcs < 2 ||
+        !r.propertyProcs->getPropertyProc || !r.propertyProcs->setPropertyProc)
+        throw std::runtime_error("Photoshop's property suite is required to preserve astronomy metadata");
+}
+
+int32_t appendMetadata(void* context, const uint8_t* bytes, size_t count) noexcept {
+    try {
+        auto& data = *static_cast<std::vector<uint8_t>*>(context);
+        data.insert(data.end(), bytes, bytes + count);
+        return 0;
+    } catch (...) { return 1; }
+}
+
+void storeMetadata(FormatRecord& r, const SeizaImage* image) {
+    if (r.openForPreview) return;
+    requireMetadataSuite(r);
+    std::vector<uint8_t> bytes;
+    char error[1024]{};
+    if (seiza_image_xmp(image, appendMetadata, &bytes, error, sizeof(error))) throw std::runtime_error(error);
+    if (bytes.size() > INT32_MAX) throw std::runtime_error("Astronomy metadata is too large");
+    OwnedHandle handle{r.handleProcs->newProc(static_cast<int32>(bytes.size())), r.handleProcs};
+    if (!handle.value) throw std::bad_alloc();
+    auto* data = r.handleProcs->lockProc(handle.value, false);
+    if (!data) throw std::bad_alloc();
+    std::memcpy(data, bytes.data(), bytes.size());
+    r.handleProcs->unlockProc(handle.value);
+    const auto result = r.propertyProcs->setPropertyProc(kPhotoshopSignature, propXMP, 0, 0, handle.value);
+    if (result) throw std::runtime_error("Photoshop could not retain astronomy metadata on the document");
+}
+
+std::vector<uint8_t> loadMetadata(FormatRecord& r) {
+    requireMetadataSuite(r);
+    OwnedHandle handle{nullptr, r.handleProcs};
+    const auto result = r.propertyProcs->getPropertyProc(kPhotoshopSignature, propXMP, 0, nullptr, &handle.value);
+    if (result) throw std::runtime_error("Photoshop could not read document metadata");
+    if (!handle.value) return {};
+    const auto size = r.handleProcs->getSizeProc(handle.value);
+    if (size < 0 || size > 128 * 1024 * 1024) throw std::runtime_error("Document metadata exceeds the size limit");
+    if (!size) return {};
+    auto* data = r.handleProcs->lockProc(handle.value, false);
+    if (!data) throw std::bad_alloc();
+    // Unlock before any allocation that could throw.
+    std::vector<uint8_t> bytes;
+    try { bytes.assign(reinterpret_cast<uint8_t*>(data), reinterpret_cast<uint8_t*>(data) + size); }
+    catch (...) { r.handleProcs->unlockProc(handle.value); throw; }
+    r.handleProcs->unlockProc(handle.value);
+    return bytes;
 }
 
 bool loadOptions(FormatRecord& r, SeizaOptions& options) {
@@ -298,6 +355,7 @@ void readContinue(FormatRecord& r, intptr_t persistent) {
         }
     }
     r.data = nullptr;
+    storeMetadata(r, state->image.get());
 }
 
 void validateWrite(FormatRecord& r) {
@@ -327,6 +385,7 @@ int32_t writeBytes(void* opaque, const uint8_t* bytes, size_t length) noexcept {
 
 void writeStart(FormatRecord& r) {
     validateWrite(r);
+    const auto metadata = loadMetadata(r);
     SeizaOptions options;
     if (!loadOptions(r, options)) {
         writeOptions(r); // Some hosts skip the options sequence entirely.
@@ -361,7 +420,8 @@ void writeStart(FormatRecord& r) {
     WriteContext context{&r};
     char error[1024]{};
     const auto outputDepth = options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth);
-    if (seiza_encode_depth(kFormat, outputDepth, w, h, r.planes, samples.data(), count, writeBytes, &context, error, sizeof(error))) {
+    if (seiza_encode_with_metadata(kFormat, outputDepth, w, h, r.planes, samples.data(), count,
+        metadata.data(), metadata.size(), writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);
     }
@@ -432,7 +492,8 @@ SEIZA_EXPORT void MACPASCAL PluginMain(
             validateWrite(r);
             const auto w = r.HostSupports32BitCoordinates ? r.imageSize32.h : r.imageSize.h;
             const auto h = r.HostSupports32BitCoordinates ? r.imageSize32.v : r.imageSize.v;
-            const auto bytes = static_cast<int64_t>(w) * h * r.planes * 4 + 65536;
+            const auto bytes = static_cast<int64_t>(w) * h * r.planes * 4 + 65536 +
+                static_cast<int64_t>(loadMetadata(r).size());
             r.minDataBytes = r.maxDataBytes = static_cast<int32>(std::min<int64_t>(bytes, INT32_MAX));
             r.data = nullptr;
             break;

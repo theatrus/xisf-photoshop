@@ -13,11 +13,11 @@ Get the plugins from [GitHub Releases](https://github.com/theatrus/xisf-photosho
 Release downloads are public, require no GitHub login, and do not expire like CI artifacts.
 Both FITS and XISF are included in every package.
 
-| Platform | v0.4.0 download | Installation |
+| Platform | v0.5.0 download | Installation |
 | --- | --- | --- |
-| Windows x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-Windows-x64-Setup-0.4.0.exe) | Close Photoshop, run setup, approve the administrator prompt, then restart Photoshop. |
-| Windows x64 | [Portable plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-Windows-x64.zip) | Close Photoshop, extract both `.8bi` files into its `Plug-ins/Seiza` folder, then restart. |
-| macOS Intel / Apple silicon | [Universal plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.4.0/Seiza-Photoshop-macOS-universal.zip) | Extract on your Mac, close Photoshop, copy both `.plugin` bundles from the `macos` folder into Photoshop's `Plug-ins` folder, then restart. |
+| Windows x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.0/Seiza-Photoshop-Windows-x64-Setup-0.5.0.exe) | Close Photoshop, run setup, approve the administrator prompt, then restart Photoshop. |
+| Windows x64 | [Portable plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.0/Seiza-Photoshop-Windows-x64.zip) | Close Photoshop, extract both `.8bi` files into its `Plug-ins/Seiza` folder, then restart. |
+| macOS Intel / Apple silicon | [Universal plugin ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.0/Seiza-Photoshop-macOS-universal.zip) | Extract on your Mac, close Photoshop, copy both `.plugin` bundles from the `macos` folder into Photoshop's `Plug-ins` folder, then restart. |
 
 The Windows installer handles updates and removal of detected older manual copies;
 see [Windows installation details](#optional-windows-installer). Releases after
@@ -33,7 +33,7 @@ Configure defaults through **Help → About Plug-In → FITS/XISF** on Windows o
 
 **Development status:** Initial releases for Windows x64 and universal macOS
 (Intel and Apple silicon), compiled against Adobe's 2026 SDK v2. CI gates plugin
-downloads on seventeen Rust tests, a compiled C++/Rust ABI test, and a host harness
+downloads on Rust codec and metadata tests, a compiled C++/Rust ABI test, and a host harness
 that loads both plugins and exercises Adobe's `FormatRecord` interface.
 Live Photoshop validation remains pending. CI macOS bundles are Developer ID
 signed, notarized, and stapled; local builds are ad-hoc signed. Plaintext SDKs
@@ -75,7 +75,9 @@ are not redistributed.
 Linear astro images may appear very dark. Apply your desired stretch in
 Photoshop; 32-bit import does not alter it for display, while 16-bit import applies
 only the linear min/max rescaling described above. The plug-ins do not embed
-an ICC profile, so color appearance depends on Photoshop's color settings.
+an ICC profile into Photoshop, so color appearance depends on Photoshop's color settings.
+Existing XISF profile data is retained as source metadata on same-format saves;
+it is not synchronized with Photoshop profile conversions.
 
 ## Plugin settings (Help menu)
 
@@ -155,9 +157,52 @@ selects **Auto** for future files so unrelated monochrome data is not forced thr
 the same Bayer pattern. Use **Help -> About Plug-In -> FITS/XISF** on Windows (the
 **Photoshop -> About Plug-In** menu on macOS) to change the shared default later.
 
-Saved debayered images contain RGB samples, not a Bayer mosaic. Raw grayscale
-exports do not preserve CFA tags or other source metadata; keep the original
-scientific file if you need to debayer it again later.
+Saved debayered images contain RGB samples, not a Bayer mosaic, and omit active
+CFA tags. Raw grayscale saves retain source CFA tags while the dimensions stay
+unchanged. Keep the original scientific file if you need to debayer it again later.
+
+## Metadata retention
+
+Starting with 0.5.0, metadata is captured on Open and attached to the Photoshop
+document. Ordinary Save and Save As retain it by default, including when the
+save options dialog is skipped. Metadata is stored in a private XMP namespace,
+so a PSD/PSB intermediate can carry it with the document; workflows that strip
+XMP also strip this payload. Files opened or saved by earlier plugin versions
+cannot recover metadata that those versions discarded. Reopen the original
+FITS/XISF with the new plugin to capture its metadata.
+
+- **FITS → FITS:** preserves the primary image's header cards, their order,
+  comments, duplicate HISTORY/COMMENT records, HIERARCH cards, and long-string
+  CONTINUE cards. Acquisition fields such as target, exposure, filter, camera,
+  gain, and observation time remain available to other FITS readers.
+- **XISF → XISF:** preserves the first image's metadata and file-level metadata,
+  including FITSKeyword records, typed properties, Unicode strings, inline and
+  embedded values, and attached binary blocks. Attached metadata retains its
+  compression and checksums; offsets are relocated in the new file. Source ICC,
+  resolution, working-space, and display-function metadata is retained.
+- **Switching formats:** copies compatible FITS keywords on a best-effort basis.
+  XISF-only properties and binary blocks have no generic FITS mapping and are
+  omitted from FITS output. No private FITS extensions are added. Saving a copy
+  in another format does not remove the source metadata from the open Photoshop
+  document, so saving that document back to its original format still retains it.
+
+Image storage fields are regenerated for the saved dimensions, channels, and
+sample type. Obsolete pixel checksums, extrema, and thumbnails are removed.
+Bayer tags are removed after debayering, for RGB output, or after a dimension
+change. Known WCS keywords and PixInsight astrometric-solution properties are
+removed when the dimensions change; otherwise they are retained unchanged.
+The plugin cannot track every Photoshop transform: rotations, flips, or edits
+that leave the dimensions unchanged can invalidate a retained solution. Re-solve
+after geometric edits. Retained acquisition metadata describes the source;
+16-bit rescaling still loses the original absolute pixel scale and precision.
+
+The scope remains one image: additional FITS HDUs and XISF images are not loaded
+as layers or copied on save. Layers, alpha, and masks are flattened/unsupported
+as described below; use PSD/PSB for the Photoshop editing document.
+Metadata is limited to 64 MiB of serialized payload, with a 16 MiB XISF XML-header
+limit. Missing attachment data, external XISF metadata blocks, or malformed
+metadata cause an explicit error rather than a successful save that silently
+drops fields. Use a monolithic XISF source for metadata with binary attachments.
 
 ## Current limits
 
@@ -169,8 +214,8 @@ scientific file if you need to debayer it again later.
 - Debayering supports the four 2-by-2 Bayer patterns using bilinear interpolation.
   Other CFA layouts (such as X-Trans) are not automatically converted. No white
   balance, camera color matrix, gamma correction, or advanced demosaic method is applied.
-- Save stores one flattened image. Layers, alpha channels, masks, WCS/acquisition
-  headers, XISF properties, ICC profiles, and other metadata are not round-tripped.
+- Save stores one flattened image. Layers, alpha channels, and masks are not
+  round-tripped. Source metadata follows the retention rules above.
   Keep an original scientific image and use PSD/PSB for layered Photoshop work.
 - XISF output is uncompressed Float32 or UInt16. FITS output uses `BITPIX=-32`
   for Float32, or `BITPIX=16`, `BZERO=32768`, `BSCALE=1` for unsigned integer data.
@@ -180,7 +225,8 @@ scientific file if you need to debayer it again later.
   uses saved defaults. Custom choices are not recorded in Actions descriptors yet.
   Preview reads are always Float32 and never display a dialog.
 - The first implementation retains the encoded input and decoded image in memory
-  while opening; saving retains a planar f32 image. It is not an out-of-core codec.
+  while opening; saving retains a planar f32 image and an encoded output buffer.
+  Document XMP also holds a serialized copy of the source metadata. It is not an out-of-core codec.
   Cancellation is checked during host I/O and pixel transfer; upstream decoding
   itself is synchronous and cannot be interrupted mid-decode.
 
@@ -226,8 +272,9 @@ Download `Seiza-Photoshop-Windows-x64-Setup-<version>.exe` from the
 [latest release](https://github.com/theatrus/xisf-photoshop/releases/latest),
 close Photoshop, and run it.
 Approve the Windows administrator prompt, then restart Photoshop after setup.
-The installer currently has no Windows code-signing certificate, so Windows may
-show an unknown-publisher or SmartScreen prompt. Windows 10/11 x64 is supported;
+Release installers and their plugins from 0.5.0 onward are Authenticode-signed
+as StackFoundry LLC. Local builds and releases through 0.4.0 are unsigned.
+Windows 10/11 x64 is supported;
 native Windows ARM64 Photoshop is not supported.
 
 Both plugins go in
@@ -337,11 +384,14 @@ chooses the requested encoder independently of the output filename.
 
 `cargo test` covers FITS scaling, signed values, fixed integer normalization,
 Float32 round trips, endian conversion, shuffled compression, planar channels,
-malformed input, non-finite values, FFI ownership, and write failures.
+malformed input, non-finite values, FFI ownership, and write failures. Metadata
+tests cover raw FITS cards, XISF property scopes and binary attachments, header
+growth and offset relocation, depth conversion, CFA/WCS cleanup, and XMP parsing.
 `native/codec_smoke.cpp` links the actual release Rust library into a C++ executable
 and verifies both formats across the language boundary. `native/host_smoke.cpp`
 loads the compiled plug-ins through `PluginMain` and uses the real SDK structures.
-Both platform build scripts run that harness before packaging.
+The harness also exercises document XMP, Save As without shared format options,
+and isolation between documents. Both platform build scripts run it before packaging.
 
 ## CI and downloads
 

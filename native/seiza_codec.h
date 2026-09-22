@@ -33,6 +33,14 @@ int32_t seiza_encode(uint32_t format, uint32_t width, uint32_t height, uint32_t 
 int32_t seiza_encode_depth(uint32_t format, uint32_t depth, uint32_t width, uint32_t height,
     uint32_t planes, const float* pixels, size_t samples, SeizaWriteCallback callback,
     void* context, char* error, size_t capacity);
+// Document metadata: XMP includes an opaque astronomy payload in a private namespace.
+// It must be stored on the document, not in process-global or format-only state.
+int32_t seiza_image_xmp(const SeizaImage* image, SeizaWriteCallback callback,
+    void* context, char* error, size_t capacity);
+int32_t seiza_encode_with_metadata(uint32_t format, uint32_t depth, uint32_t width,
+    uint32_t height, uint32_t planes, const float* pixels, size_t samples,
+    const uint8_t* xmp, size_t xmp_length, SeizaWriteCallback callback,
+    void* context, char* error, size_t capacity);
 #ifdef __cplusplus
 }
 #endif

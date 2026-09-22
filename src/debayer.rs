@@ -99,5 +99,6 @@ pub fn apply(image: &mut Image, mode: u32) -> Result<()> {
     image.pixels = pixels;
     image.planes = 3;
     image.cfa = CfaInfo::default();
+    image.metadata.debayered = true;
     Ok(())
 }

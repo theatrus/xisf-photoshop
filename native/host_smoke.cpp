@@ -13,6 +13,7 @@
 #endif
 #include "PIDefines.h"
 #include "PIFormat.h"
+#include "PIProperties.h"
 #include "seiza_codec.h"
 #include "host_file.h"
 #include "options.h"
@@ -52,6 +53,7 @@ struct Host {
     Str255 error{};
     Entry entry;
     std::vector<float> pixels;
+    std::vector<char> xmp;
     bool writing = false;
     int transfers = 0;
     int cancelAfter = -1;
@@ -59,6 +61,24 @@ struct Host {
     ~Host() { if (record.revertInfo) disposeHandle(record.revertInfo); }
 };
 static Host* current = nullptr;
+static OSErr MACPASCAL getProperty(PIType signature, PIType key, int32, intptr_t*, Handle* output) {
+    if (signature != kPhotoshopSignature || key != propXMP || !output) return formatBadParameters;
+    *output = newHandle(static_cast<int32>(current->xmp.size()));
+    reinterpret_cast<TestHandle*>(*output)->bytes = current->xmp;
+    return noErr;
+}
+static OSErr MACPASCAL setProperty(PIType signature, PIType key, int32, intptr_t, Handle value) {
+    if (signature != kPhotoshopSignature || key != propXMP || !value) return formatBadParameters;
+    current->xmp = reinterpret_cast<TestHandle*>(value)->bytes;
+    return noErr;
+}
+static PropertyProcs properties = [] {
+    PropertyProcs p{};
+    p.propertyProcsVersion = kCurrentPropertyProcsVersion;
+    p.numPropertyProcs = kCurrentPropertyProcsCount;
+    p.getPropertyProc = getProperty; p.setPropertyProc = setProperty;
+    return p;
+}();
 static void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
 }
@@ -129,6 +149,7 @@ static void initialize(Host& h, File file) {
     h.descriptor.playInfo = plugInDialogSilent;
     h.record.descriptorParameters = &h.descriptor;
     h.record.handleProcs = &handles;
+    h.record.propertyProcs = &properties;
 }
 static void setOptions(Host& h, uint32_t readDepth, uint32_t writeDepth) {
     SeizaOptions options;
@@ -171,6 +192,36 @@ static void makeCfaFixture(uint32_t format, uint32_t width, uint32_t height,
         }
 }
 
+static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded) {
+    if (format == 1) {
+        size_t end = 0;
+        while (end + 240 < encoded.size() && std::memcmp(encoded.data() + end, "END     ", 8)) end += 80;
+        require(end + 240 < 2880, "Missing metadata fixture header space");
+        for (const char* card : {"OBJECT  = 'metadata-document-A' / original target", "EXPTIME =                  180 / seconds", "END"}) {
+            std::fill_n(encoded.data() + end, 80, static_cast<uint8_t>(' '));
+            std::memcpy(encoded.data() + end, card, std::strlen(card)); end += 80;
+        }
+    } else {
+        const uint32_t length = encoded[8] | (encoded[9] << 8) | (encoded[10] << 16) | (encoded[11] << 24);
+        std::string xml(reinterpret_cast<const char*>(encoded.data() + 16), length);
+        const std::string fields = "<FITSKeyword name=\"OBJECT\" value=\"'metadata-document-A'\" comment=\"original target\"/>"
+            "<FITSKeyword name=\"EXPTIME\" value=\"180\" comment=\"seconds\"/>";
+        const auto end = xml.find("</Image>");
+        if (end != std::string::npos) xml.insert(end, fields);
+        else {
+            const auto close = xml.find("/>", xml.find("<Image"));
+            require(close != std::string::npos, "Missing XISF fixture image");
+            xml.replace(close, 2, ">" + fields + "</Image>");
+        }
+        while (!xml.empty() && (xml.back() == ' ' || xml.back() == '\0')) xml.pop_back();
+        require(xml.size() < 4080, "Metadata fixture exceeds header block");
+        const auto newLength = static_cast<uint32_t>(xml.size());
+        for (int i = 0; i < 4; ++i) encoded[8 + i] = static_cast<uint8_t>(newLength >> (i * 8));
+        std::fill(encoded.begin() + 16, encoded.begin() + 4096, 0);
+        std::memcpy(encoded.data() + 16, xml.data(), xml.size());
+    }
+}
+
 static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
     uint32_t readDepth, uint32_t writeDepth, bool interactive = false, bool useDefaults = false,
     bool changeMode = false, bool legacyOptions = false, uint32_t cfaMode = UINT32_MAX, bool tagged = true) {
@@ -204,6 +255,7 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         }
     }
     // A Unicode path also verifies that plug-in I/O only uses host file handles.
+    addMetadataFixture(format, encoded);
 #ifdef _WIN32
     File file = CreateFileW(L"build\\native\\host-\u661f.tmp", GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
@@ -244,6 +296,7 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         require(reader.pixels == expected && reader.record.data == nullptr, "Host received incorrect pixels");
         success(reader, formatSelectorReadFinish);
         require(reader.state == 0, "Read state leaked");
+        require(!reader.xmp.empty(), "Import did not store document XMP");
         if (cfaMode != UINT32_MAX) saveDefaults({readDepth, 0, true, false, cfaMode ? 0u : 1u});
         if (useDefaults) saveDefaults({readDepth == 16 ? 32u : 16u, writeDepth, false, false});
         // Revert retains the chosen Photoshop depth, even with dialogs disabled.
@@ -254,6 +307,7 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         if (useDefaults) saveDefaults({readDepth, writeDepth, false, false});
 
         Host writer{}; writer.entry = entry; initialize(writer, file);
+        writer.xmp = reader.xmp; // The document carries XMP into Save As, independently of revertInfo.
         if (!useDefaults) setOptions(writer, readDepth, writeDepth);
         if (legacyOptions) {
             setOptions(writer, readDepth, 32);
@@ -282,6 +336,8 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         require(header.find(format == 1 ? (outputDepth == 16 ? "BITPIX  =                   16" : "BITPIX  =                  -32") :
             (outputDepth == 16 ? "sampleFormat=\"UInt16\"" : "sampleFormat=\"Float32\"")) != std::string::npos,
             "Saved sample type does not match the requested/document depth");
+        require(header.find("metadata-document-A") != std::string::npos && header.find("EXPTIME") != std::string::npos,
+            "Save As lost source metadata independently of revertInfo");
         SeizaImage* decoded = nullptr;
         require(seiza_decode(format, encoded.data(), encoded.size(), &decoded, error, sizeof(error)) == 0, error);
         SeizaImageView view{}; seiza_image_view(decoded, &view);
@@ -291,6 +347,13 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         const bool equal = view.samples == expected.size() && std::equal(savedExpected.begin(), savedExpected.end(), view.pixels);
         seiza_image_free(decoded);
         require(equal, "Saved pixels changed across host round trip");
+        // A different/new document must not inherit the previous document's fields.
+        writer.xmp.clear();
+        success(writer, formatSelectorWriteStart);
+        encoded.resize(static_cast<size_t>(io.size())); io.seek(0);
+        require(io.read(encoded.data(), encoded.size()) == encoded.size(), "Isolated output read failed");
+        require(std::string(encoded.begin(), encoded.end()).find("metadata-document-A") == std::string::npos,
+            "Metadata leaked between documents");
         writer.record.depth = 8;
         require(call(writer, formatSelectorOptionsStart) != noErr, "8-bit save was not rejected");
 

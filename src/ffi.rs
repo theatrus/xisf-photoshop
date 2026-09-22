@@ -202,3 +202,74 @@ pub unsafe extern "C" fn seiza_encode_depth(
         )
     })
 }
+
+/// Serialize the decoded image's metadata as a Photoshop XMP packet.
+/// # Safety
+/// image is live; callback/context/error follow seiza_encode's contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_image_xmp(
+    image: *const Image,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
+    boundary(error, capacity, || {
+        let image = unsafe { image.as_ref() }.ok_or("Null image")?;
+        let callback = callback.ok_or("Missing metadata callback")?;
+        CallbackWriter { callback, context }
+            .write_all(&image.metadata.xmp()?)
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// Encode pixels with astronomy metadata read from the document's XMP.
+/// # Safety
+/// Pixel/callback/error contract follows seiza_encode. xmp is readable for
+/// xmp_length bytes (or null for zero bytes). The caller owns all buffers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_encode_with_metadata(
+    format: u32,
+    depth: u32,
+    width: u32,
+    height: u32,
+    planes: u32,
+    pixels: *const f32,
+    samples: usize,
+    xmp: *const u8,
+    xmp_length: usize,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
+    boundary(error, capacity, || {
+        let count = crate::sample_count(width as usize, height as usize, planes as usize)?;
+        if pixels.is_null()
+            || samples != count
+            || xmp_length > crate::metadata::LIMIT * 2
+            || (xmp.is_null() && xmp_length != 0)
+        {
+            return Err("Invalid pixel or metadata buffer".into());
+        }
+        let xmp = if xmp_length == 0 {
+            &[]
+        } else {
+            unsafe { slice::from_raw_parts(xmp, xmp_length) }
+        };
+        let metadata = crate::metadata::Metadata::from_xmp(xmp)?.unwrap_or_default();
+        crate::metadata::encode(
+            Format::try_from(format)?,
+            depth,
+            width as usize,
+            height as usize,
+            planes as usize,
+            unsafe { slice::from_raw_parts(pixels, samples) },
+            &metadata,
+            CallbackWriter {
+                callback: callback.ok_or("Missing write callback")?,
+                context,
+            },
+        )
+    })
+}

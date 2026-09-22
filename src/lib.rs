@@ -5,6 +5,7 @@
 pub mod debayer;
 pub mod ffi;
 mod integer_writer;
+pub mod metadata;
 
 pub use integer_writer::encode_u16_pixels;
 
@@ -47,6 +48,7 @@ pub struct Image {
     pub planes: usize,
     pub pixels: Vec<f32>,
     pub cfa: debayer::CfaInfo,
+    pub metadata: metadata::Metadata,
 }
 
 pub fn sample_count(width: usize, height: usize, planes: usize) -> Result<usize> {
@@ -90,6 +92,7 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
     let (width, height, planes) = (image.width, image.height, image.planes);
     let cfa = debayer::CfaInfo::from_image(&image);
     let count = sample_count(width, height, planes)?;
+    let metadata = metadata::Metadata::read(format, bytes, width, height)?;
     let bzero = image.header_f64("BZERO").unwrap_or(0.0);
     let bscale = image.header_f64("BSCALE").unwrap_or(1.0);
     let signed_fits16 = format == Format::Fits
@@ -140,16 +143,19 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
         planes,
         pixels,
         cfa,
+        metadata,
     })
 }
 
 pub fn encode(format: Format, image: &Image, writer: impl Write) -> Result<()> {
-    encode_pixels(
+    metadata::encode(
         format,
+        32,
         image.width,
         image.height,
         image.planes,
         &image.pixels,
+        &image.metadata,
         writer,
     )
 }

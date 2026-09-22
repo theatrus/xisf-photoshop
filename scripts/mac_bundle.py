@@ -17,8 +17,8 @@ def make_bundle(destination: Path, format_name: str) -> Path:
         "CFBundleName": format_name,
         "CFBundlePackageType": "8BIF",
         "CFBundleSignature": "8BIM",
-        "CFBundleVersion": "0.4.0",
-        "CFBundleShortVersionString": "0.4.0",
+        "CFBundleVersion": "0.5.0",
+        "CFBundleShortVersionString": "0.5.0",
         "LSMinimumSystemVersion": "11.0",
     }
     with (contents / "Info.plist").open("wb") as file:
