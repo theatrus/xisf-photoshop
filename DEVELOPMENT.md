@@ -39,7 +39,7 @@ they do not install plugins into Photoshop or require closing your real Photosho
 
 ## macOS build
 
-On a Mac, install Xcode, Rust, and Python 3, and extract the Mac Photoshop SDK:
+On a Mac, install Xcode, Rust, and Python 3.10 or newer, and extract the Mac Photoshop SDK:
 
 ```bash
 bash scripts/build-macos.sh /path/to/photoshopsdk
@@ -85,16 +85,33 @@ variables for a local unsigned DMG around the existing bundles.
 The DMG opens in icon view with a numbered instruction background. The shortcut
 and plugin positions are defined in `scripts/dmg-layout.py`. Packaging installs
 the pinned `ds-store` and `mac-alias` tools in a temporary virtual environment;
-it does not require Finder or change the user's Python installation. The
-background alias is created on the mounted image, so it refers to that volume.
+it does not require Finder or change the user's Python installation. Ensure
+`python3` on `PATH` is version 3.10 or newer; Apple's bundled Python 3.9 is too old.
+
+The background alias uses the image's resolved path on the mounted volume.
+Without this, `/var` versus `/private/var` can produce a link that leaves the
+volume and points into the build machine's temporary folder. The icon-view
+settings include all three background color fields and grid spacing below 100;
+Finder may discard the settings if they are incomplete or out of range.
 To edit the artwork, regenerate the committed PNG with Pillow and local font files:
 
 ```sh
 python scripts/make-dmg-background.py /path/to/regular.ttf /path/to/bold.ttf
 ```
 
-Keep the icon positions and artwork aligned. `test-macos-dmg.sh` verifies the
-background bytes, saved window bounds, icon positions, and corrected copy instructions.
+Keep the icon positions and artwork aligned. `test-macos-dmg.sh` remounts the
+compressed image at a new path and verifies the background bytes, alias paths
+and file IDs, window bounds, icon positions, and copy instructions.
+`verify-dmg-alias.swift` also asks macOS to resolve the alias to the image on
+that mount, with mount dialogs disabled. Eject other DMGs with the same volume
+name before testing; macOS can resolve an alias to the other volume.
+
+After changing the layout, also open the final compressed DMG in Finder. Check
+that the background appears, all text and icon labels fit without scrolling,
+and opening **Photoshop Plug-ins** leaves the DMG open and opens the shared
+folder in a second window. Eject and reopen the DMG to check the saved layout.
+The command-line tests check metadata and alias resolution; this Finder check
+confirms what users see. Do not copy plugins into the shared folder for this check.
 
 ## Architecture and tests
 

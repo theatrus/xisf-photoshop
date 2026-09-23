@@ -57,7 +57,9 @@ for format in FITS XISF; do
   identifier="$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")"
   test "$identifier" = "org.seiza.photoshop.$(printf '%s' "$format" | tr '[:upper:]' '[:lower:]')"
   test "$(plutil -extract CFBundlePackageType raw "$bundle/Contents/Info.plist")" = "8BIF"
-  xcrun lipo "$executable" -verify_arch arm64 x86_64
+  for arch in arm64 x86_64; do
+    xcrun lipo "$executable" -verify_arch "$arch"
+  done
   bundles+=("$bundle")
 done
 

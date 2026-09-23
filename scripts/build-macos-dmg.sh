@@ -13,6 +13,7 @@ fi
 directory="$(cd "$1" && pwd)"
 identity="${2:-}"
 cd "$(dirname "$0")/.."
+python3 -c 'import sys; sys.exit("DMG packaging requires Python 3.10 or newer on PATH.") if sys.version_info < (3, 10) else None'
 if [[ "$identity" == '-' ]]; then
   echo 'Use a Developer ID Application identity, or omit it for a local unsigned DMG.' >&2
   exit 1
@@ -35,7 +36,9 @@ for format in FITS XISF; do
   test "$(plutil -extract CFBundleShortVersionString raw "$bundle/Contents/Info.plist")" = "$version"
   test "$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" = "org.seiza.photoshop.$(printf '%s' "$format" | tr '[:upper:]' '[:lower:]')"
   codesign --verify --deep --strict "$bundle"
-  xcrun lipo "$bundle/Contents/MacOS/Seiza${format}" -verify_arch arm64 x86_64
+  for arch in arm64 x86_64; do
+    xcrun lipo "$bundle/Contents/MacOS/Seiza${format}" -verify_arch "$arch"
+  done
 done
 
 mkdir -p dist
