@@ -24,6 +24,12 @@ attached=1
 test -L "$mount/Photoshop Plug-ins"
 test "$(readlink "$mount/Photoshop Plug-ins")" = '/Library/Application Support/Adobe/Plug-Ins/CC'
 test -s "$mount/Read me first.txt"
+if [[ -z "${SEIZA_DMG_PYTHON:-}" ]]; then
+  python3 -m venv "$work/python"
+  "$work/python/bin/python" -m pip install --disable-pip-version-check -r "$(dirname "$0")/dmg-requirements.txt"
+  SEIZA_DMG_PYTHON="$work/python/bin/python"
+fi
+"$SEIZA_DMG_PYTHON" "$(dirname "$0")/dmg-layout.py" --verify "$mount"
 for doc in README.md NOTICE LICENSE; do
   test -s "$mount/Documentation/$doc"
 done

@@ -46,7 +46,19 @@ if [[ -e "$output" ]]; then
   exit 1
 fi
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+mount="$work/volume"
+attached=''
+cleanup() {
+  if [[ -n "$attached" ]]; then
+    hdiutil detach "$mount" || hdiutil detach -force "$mount" || return 1
+  fi
+  rm -rf "$work"
+}
+trap cleanup EXIT
+# Isolate the small Finder metadata tools from the user's Python installation.
+python3 -m venv "$work/python"
+"$work/python/bin/python" -m pip install --disable-pip-version-check -r scripts/dmg-requirements.txt
+export SEIZA_DMG_PYTHON="$work/python/bin/python"
 stage="$work/staging"
 mkdir "$stage"
 for format in FITS XISF; do
@@ -58,7 +70,19 @@ ln -s '/Library/Application Support/Adobe/Plug-Ins/CC' "$stage/Photoshop Plug-in
 cp scripts/macos-install.txt "$stage/Read me first.txt"
 mkdir "$stage/Documentation"
 cp README.md NOTICE LICENSE "$stage/Documentation/"
-hdiutil create -volname "FITS and XISF ${version}" -srcfolder "$stage" -fs HFS+ -format UDZO "$output"
+mkdir "$stage/.background"
+cp scripts/dmg-background.png "$stage/.background/instructions.png"
+# Create the alias on the mounted image so Finder resolves it on the user's Mac.
+# Extra room allows the Finder metadata to be written before compression.
+hdiutil create -volname "FITS and XISF ${version}" -srcfolder "$stage" -fs HFS+ -format UDRW -size 64m "$work/writable.dmg"
+mkdir "$mount"
+hdiutil attach -readwrite -nobrowse -mountpoint "$mount" "$work/writable.dmg"
+attached=1
+"$SEIZA_DMG_PYTHON" scripts/dmg-layout.py "$mount"
+sync
+hdiutil detach "$mount"
+attached=''
+hdiutil convert "$work/writable.dmg" -format UDZO -o "$output"
 
 if [[ -n "$identity" ]]; then
   codesign --force --timestamp --sign "$identity" --identifier org.seiza.photoshop.disk-image "$output"

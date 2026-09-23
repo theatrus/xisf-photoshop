@@ -77,10 +77,24 @@ APPLE_API_KEY_PATH=~/AuthKey_KEYID.p8 APPLE_API_KEY=KEYID APPLE_API_ISSUER=ISSUE
 
 The script creates `dist/Seiza-Photoshop-macOS-universal-<version>.dmg`, signs
 and notarizes it, staples its ticket, verifies Gatekeeper acceptance, then
-mounts it read-only to check the shortcut, both architectures, signatures, and
+mounts it read-only to check the shortcut, Finder layout, both architectures, signatures, and
 unchanged bundle contents. It writes the checksum after stapling. Verification
 never installs into the real Photoshop folder. Omit the identity and API
 variables for a local unsigned DMG around the existing bundles.
+
+The DMG opens in icon view with a numbered instruction background. The shortcut
+and plugin positions are defined in `scripts/dmg-layout.py`. Packaging installs
+the pinned `ds-store` and `mac-alias` tools in a temporary virtual environment;
+it does not require Finder or change the user's Python installation. The
+background alias is created on the mounted image, so it refers to that volume.
+To edit the artwork, regenerate the committed PNG with Pillow and local font files:
+
+```sh
+python scripts/make-dmg-background.py /path/to/regular.ttf /path/to/bold.ttf
+```
+
+Keep the icon positions and artwork aligned. `test-macos-dmg.sh` verifies the
+background bytes, saved window bounds, icon positions, and corrected copy instructions.
 
 ## Architecture and tests
 
