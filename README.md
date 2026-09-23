@@ -42,8 +42,12 @@ copies when updating; remove the two files to uninstall.
 ### macOS installation (DMG)
 
 1. Close Photoshop and open the DMG.
-2. Drag **both SeizaFITS.plugin and SeizaXISF.plugin** onto **Photoshop Plug-ins**.
-3. Approve Finder's administrator prompt if asked, eject the DMG, and restart Photoshop.
+2. Double-click **Photoshop Plug-ins** to open the destination folder in a new Finder window.
+3. Drag **both SeizaFITS.plugin and SeizaXISF.plugin** from the DMG into that Finder window.
+4. Approve Finder's administrator prompt if asked, eject the DMG, and restart Photoshop.
+
+Open the shortcut first: dragging directly onto it does not show the administrator
+prompt needed to copy into the shared folder.
 
 The shortcut points to Adobe's shared folder at
 `/Library/Application Support/Adobe/Plug-Ins/CC`, which survives Photoshop upgrades.

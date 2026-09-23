@@ -1,9 +1,14 @@
 FITS and XISF for Photoshop
 
 1. Save your work and quit Photoshop.
-2. Drag BOTH SeizaFITS.plugin and SeizaXISF.plugin onto the Photoshop Plug-ins
-   shortcut in this disk image. Approve the administrator prompt if asked.
-3. Eject this disk image and restart Photoshop.
+2. Double-click the Photoshop Plug-ins shortcut in this disk image to OPEN
+   the destination folder in a new Finder window.
+3. Drag BOTH SeizaFITS.plugin and SeizaXISF.plugin from this disk image into
+   that Finder window. Approve the administrator prompt if asked.
+4. Eject this disk image and restart Photoshop.
+
+Open the shortcut first. Dragging directly onto the shortcut does not show
+the administrator prompt needed to copy into the shared folder.
 
 The shortcut points to Adobe's shared plug-in folder:
   /Library/Application Support/Adobe/Plug-Ins/CC
