@@ -8,13 +8,13 @@ and retain source metadata when saving in the same format.
 
 Both FITS and XISF plugins are included in every download.
 
-| Platform | Download v0.5.2 | Installation |
+| Platform | Download v0.5.3 | Installation |
 | --- | --- | --- |
-| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.2/Seiza-Photoshop-Windows-x64-Setup-0.5.2.exe) | [Windows instructions](#optional-windows-installer) |
-| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.2/Seiza-Photoshop-macOS-universal-0.5.2.dmg) | [macOS instructions](#macos-installation-dmg) |
+| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.3/Seiza-Photoshop-Windows-x64-Setup-0.5.3.exe) | [Windows instructions](#optional-windows-installer) |
+| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.3/Seiza-Photoshop-macOS-universal-0.5.3.dmg) | [macOS instructions](#macos-installation-dmg) |
 
-For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.2/Seiza-Photoshop-Windows-x64.zip)
-and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.2/Seiza-Photoshop-macOS-universal.zip)
+For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.3/Seiza-Photoshop-Windows-x64.zip)
+and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.3/Seiza-Photoshop-macOS-universal.zip)
 downloads are also available. See [all releases](https://github.com/theatrus/xisf-photoshop/releases).
 
 ### Optional Windows installer

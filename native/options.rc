@@ -27,7 +27,7 @@ STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "FITS / XISF - Default settings"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT "Seiza Astronomy Formats 0.5.2 - shared by FITS and XISF", -1, 12, 10, 336, 14
+    LTEXT "Seiza Astronomy Formats 0.5.3 - shared by FITS and XISF", -1, 12, 10, 336, 14
     LTEXT "Default import depth", -1, 12, 34, 120, 12
     COMBOBOX 17101, 142, 31, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     AUTOCHECKBOX "Ask on every Open", 17103, 142, 54, 200, 12
