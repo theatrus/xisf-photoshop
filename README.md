@@ -17,9 +17,6 @@ For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photosho
 and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.2/Seiza-Photoshop-macOS-universal.zip)
 downloads are also available. See [all releases](https://github.com/theatrus/xisf-photoshop/releases).
 
-Windows downloads are signed by **StackFoundry LLC**. The macOS DMG and plugins
-are Developer ID signed and notarized. SHA-256 checksums accompany each download.
-
 ### Optional Windows installer
 
 Close Photoshop, run the installer, approve the administrator prompt, and restart
