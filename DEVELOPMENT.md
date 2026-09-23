@@ -104,6 +104,9 @@ and verifies both formats across the language boundary. `native/host_smoke.cpp`
 loads the compiled plug-ins through `PluginMain` and uses the real SDK structures.
 The harness also exercises document XMP, Save As without shared format options,
 and isolation between documents. Both platform build scripts run it before packaging.
+ICC tests cover RGB and grayscale profiles, attached/inline/embedded data,
+compression and checksums, invalid bounds, host handle ownership, and replacing
+or removing a source profile when Photoshop supplies the current document profile.
 
 ## Manual Photoshop checks
 
@@ -124,6 +127,20 @@ cargo run --locked --example make_fixtures
 4. Cancel a large import/export; confirm Photoshop remains usable and the original
    source file is intact. Reopen a valid image after a malformed-file error.
 5. Confirm unavailable modes/extra alpha channels cannot be silently exported.
+6. Open XISF files containing real RGB and grayscale ICC profiles and inspect
+   **Edit > Assign Profile**. Save copies and compare the embedded profile bytes.
+   Convert an RGB document to another profile, save, and verify the new profile
+   replaces the source. Save again with **ICC Profile** unchecked and verify no
+   `ICCProfile` element or orphaned profile attachment remains. Repeat for both
+   import depths. Use locally installed profiles; do not redistribute them.
+
+The ICC integration was exercised in Photoshop 2026 on Windows with Float32
+XISF fixtures imported as 16-bit documents: a zlib-compressed Adobe RGB (1998)
+profile and a grayscale Black White profile both survived save byte-for-byte.
+**Convert to Profile** from Adobe RGB to sRGB produced an XISF containing the
+current sRGB profile; saving with **ICC Profile** unchecked omitted it. Native
+host tests additionally cover 32-bit documents. Interactive macOS verification
+remains separate from the CI host tests.
 
 ## CI and release packaging
 

@@ -4,6 +4,7 @@
 
 pub mod debayer;
 pub mod ffi;
+pub mod icc;
 mod integer_writer;
 pub mod metadata;
 

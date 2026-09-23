@@ -243,12 +243,84 @@ pub unsafe extern "C" fn seiza_encode_with_metadata(
     error: *mut c_char,
     capacity: usize,
 ) -> i32 {
+    unsafe {
+        seiza_encode_with_profile(
+            format,
+            depth,
+            width,
+            height,
+            planes,
+            pixels,
+            samples,
+            xmp,
+            xmp_length,
+            0,
+            ptr::null(),
+            0,
+            callback,
+            context,
+            error,
+            capacity,
+        )
+    }
+}
+
+/// Read a matching ICC profile from the imported image, after optional debayering.
+/// # Safety
+/// Image must be live; callback and error follow seiza_image_xmp's contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_image_icc(
+    image: *const Image,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
+    boundary(error, capacity, || {
+        let image = unsafe { image.as_ref() }.ok_or("Missing image")?;
+        let profile = image.metadata.icc_profile(image.planes)?;
+        CallbackWriter {
+            callback: callback.ok_or("Missing write callback")?,
+            context,
+        }
+        .write_all(&profile)
+        .map_err(|e| e.to_string())
+    })
+}
+
+/// Encode with an optional authoritative host ICC profile. If replace_icc is 1,
+/// an empty profile removes the source profile; 0 preserves source metadata.
+/// # Safety
+/// Follows seiza_encode_with_metadata; icc must be readable for icc_length bytes
+/// (null is allowed for zero bytes). All buffers remain owned by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_encode_with_profile(
+    format: u32,
+    depth: u32,
+    width: u32,
+    height: u32,
+    planes: u32,
+    pixels: *const f32,
+    samples: usize,
+    xmp: *const u8,
+    xmp_length: usize,
+    replace_icc: u32,
+    icc: *const u8,
+    icc_length: usize,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
     boundary(error, capacity, || {
         let count = crate::sample_count(width as usize, height as usize, planes as usize)?;
         if pixels.is_null()
             || samples != count
             || xmp_length > crate::metadata::LIMIT * 2
             || (xmp.is_null() && xmp_length != 0)
+            || replace_icc > 1
+            || icc_length > crate::icc::LIMIT
+            || (icc.is_null() && icc_length != 0)
         {
             return Err("Invalid pixel or metadata buffer".into());
         }
@@ -258,7 +330,12 @@ pub unsafe extern "C" fn seiza_encode_with_metadata(
             unsafe { slice::from_raw_parts(xmp, xmp_length) }
         };
         let metadata = crate::metadata::Metadata::from_xmp(xmp)?.unwrap_or_default();
-        crate::metadata::encode(
+        let profile = if icc_length == 0 {
+            &[]
+        } else {
+            unsafe { slice::from_raw_parts(icc, icc_length) }
+        };
+        crate::metadata::encode_with_icc(
             Format::try_from(format)?,
             depth,
             width as usize,
@@ -266,6 +343,7 @@ pub unsafe extern "C" fn seiza_encode_with_metadata(
             planes as usize,
             unsafe { slice::from_raw_parts(pixels, samples) },
             &metadata,
+            (replace_icc == 1).then_some(profile),
             CallbackWriter {
                 callback: callback.ok_or("Missing write callback")?,
                 context,

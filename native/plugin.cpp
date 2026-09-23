@@ -102,6 +102,42 @@ std::vector<uint8_t> loadMetadata(FormatRecord& r) {
     return bytes;
 }
 
+void storeProfile(FormatRecord& r, const SeizaImage* image) {
+    if (kFormat != 2 || !r.canUseICCProfiles) return;
+    std::vector<uint8_t> bytes;
+    char error[1024]{};
+    if (seiza_image_icc(image, appendMetadata, &bytes, error, sizeof(error))) throw std::runtime_error(error);
+    if (bytes.empty()) return;
+    if (!canStoreOptions(r)) throw std::runtime_error("Photoshop's handle suite is required for ICC profiles");
+    OwnedHandle handle{r.handleProcs->newProc(static_cast<int32>(bytes.size())), r.handleProcs};
+    if (!handle.value) throw std::bad_alloc();
+    auto* data = r.handleProcs->lockProc(handle.value, false);
+    if (!data) throw std::bad_alloc();
+    std::memcpy(data, bytes.data(), bytes.size());
+    r.handleProcs->unlockProc(handle.value);
+    // PIFormat.h: Photoshop consumes this after ReadFinish and owns disposal.
+    r.iCCprofileData = handle.value;
+    r.iCCprofileSize = static_cast<int32>(bytes.size());
+    handle.value = nullptr;
+}
+
+std::vector<uint8_t> loadProfile(FormatRecord& r) {
+    if (kFormat != 2 || !r.canUseICCProfiles) return {};
+    // A null/empty host profile means untagged or "Embed Color Profile" disabled.
+    if (r.iCCprofileSize == 0) return {};
+    if (r.iCCprofileSize < 0 || r.iCCprofileSize > 16 * 1024 * 1024 || !r.iCCprofileData || !canStoreOptions(r))
+        throw std::runtime_error("Invalid Photoshop ICC profile buffer");
+    if (r.handleProcs->getSizeProc(r.iCCprofileData) < r.iCCprofileSize)
+        throw std::runtime_error("Truncated Photoshop ICC profile handle");
+    std::vector<uint8_t> bytes(static_cast<size_t>(r.iCCprofileSize));
+    auto* data = r.handleProcs->lockProc(r.iCCprofileData, false);
+    if (!data) throw std::bad_alloc();
+    std::memcpy(bytes.data(), data, bytes.size());
+    r.handleProcs->unlockProc(r.iCCprofileData);
+    // The host owns this handle on writes too; never dispose it here.
+    return bytes;
+}
+
 bool loadOptions(FormatRecord& r, SeizaOptions& options) {
     if (!r.revertInfo || !canStoreOptions(r)) return false;
     const auto size = r.handleProcs->getSizeProc(r.revertInfo);
@@ -356,6 +392,7 @@ void readContinue(FormatRecord& r, intptr_t persistent) {
     }
     r.data = nullptr;
     storeMetadata(r, state->image.get());
+    storeProfile(r, state->image.get());
 }
 
 void validateWrite(FormatRecord& r) {
@@ -386,6 +423,7 @@ int32_t writeBytes(void* opaque, const uint8_t* bytes, size_t length) noexcept {
 void writeStart(FormatRecord& r) {
     validateWrite(r);
     const auto metadata = loadMetadata(r);
+    const auto profile = loadProfile(r);
     SeizaOptions options;
     if (!loadOptions(r, options)) {
         writeOptions(r); // Some hosts skip the options sequence entirely.
@@ -420,8 +458,9 @@ void writeStart(FormatRecord& r) {
     WriteContext context{&r};
     char error[1024]{};
     const auto outputDepth = options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth);
-    if (seiza_encode_with_metadata(kFormat, outputDepth, w, h, r.planes, samples.data(), count,
-        metadata.data(), metadata.size(), writeBytes, &context, error, sizeof(error))) {
+    if (seiza_encode_with_profile(kFormat, outputDepth, w, h, r.planes, samples.data(), count,
+        metadata.data(), metadata.size(), kFormat == 2 && r.canUseICCProfiles ? 1u : 0u,
+        profile.data(), profile.size(), writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);
     }
@@ -493,7 +532,7 @@ SEIZA_EXPORT void MACPASCAL PluginMain(
             const auto w = r.HostSupports32BitCoordinates ? r.imageSize32.h : r.imageSize.h;
             const auto h = r.HostSupports32BitCoordinates ? r.imageSize32.v : r.imageSize.v;
             const auto bytes = static_cast<int64_t>(w) * h * r.planes * 4 + 65536 +
-                static_cast<int64_t>(loadMetadata(r).size());
+                static_cast<int64_t>(loadMetadata(r).size()) + static_cast<int64_t>(loadProfile(r).size());
             r.minDataBytes = r.maxDataBytes = static_cast<int32>(std::min<int64_t>(bytes, INT32_MAX));
             r.data = nullptr;
             break;

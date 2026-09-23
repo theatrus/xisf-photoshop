@@ -153,6 +153,21 @@ Metadata is carried in the document's XMP, so a PSD/PSB intermediate can carry i
 too. Workflows that strip XMP remove this metadata. If an older plugin discarded
 metadata, reopen the original FITS/XISF with version 0.5.0 or later to capture it.
 
+## Color profiles
+
+XISF's embedded ICC profile is passed to Photoshop on Open, for both 16-bit and
+32-bit imports. Photoshop's color-management settings control whether to retain
+it, convert it, or ask about a profile mismatch.
+
+XISF saves embed the document's current profile, including changes made with
+**Assign Profile** or **Convert to Profile**. Turning off **ICC Profile**
+in Photoshop's save dialog, or saving an untagged document, omits it. The source
+profile stored with other metadata is not restored over that choice.
+
+Only profiles matching the imported color mode are assigned: a grayscale profile
+is not applied to debayered RGB. Untagged images use Photoshop's normal missing-profile
+behavior. FITS does not carry an ICC profile through these plugins.
+
 ## Format limits
 
 - Only the first image is opened and saved. Additional FITS HDUs and XISF images
@@ -161,9 +176,8 @@ metadata, reopen the original FITS/XISF with version 0.5.0 or later to capture i
   masks are not retained; use PSD/PSB for your Photoshop editing document.
 - XISF output is uncompressed. Compressed XISF input supports zlib, LZ4/LZ4HC,
   zstd, and byte shuffling.
-- Color appearance uses Photoshop's color settings. Source XISF profiles are
-  retained as metadata but are not applied to the Photoshop document or updated
-  by Photoshop profile conversions.
+- ICC profiles are limited to 16 MiB. Invalid profile headers, tag offsets, or
+  checksums produce an error.
 - Higher-precision input can lose precision when converted to 32-bit float.
   Images containing NaN or infinite samples are rejected.
 - Metadata is limited to 64 MiB, with a 16 MiB XISF XML-header limit. External

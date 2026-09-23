@@ -464,6 +464,32 @@ impl Metadata {
         Ok(result)
     }
 
+    /// Return the first image's embedded profile only when its color model matches
+    /// the imported document (a gray profile cannot describe debayered RGB).
+    pub fn icc_profile(&self, planes: usize) -> Result<Vec<u8>> {
+        let Some(xml) = &self.xml else {
+            return Ok(Vec::new());
+        };
+        let mut root = parse(xml)?;
+        let profiles: Vec<_> = image(&mut root)?
+            .children()
+            .iter()
+            .filter(|n| n.name() == "ICCProfile")
+            .collect();
+        if profiles.len() > 1 {
+            return Err("Multiple ICC profiles on one XISF image".into());
+        }
+        let Some(profile) = profiles.first() else {
+            return Ok(Vec::new());
+        };
+        let bytes = crate::icc::decode(&profile.xml(), &self.blocks)?;
+        if crate::icc::matches_planes(&bytes, planes) {
+            Ok(bytes)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     fn adjusted(&self, width: usize, height: usize, planes: usize) -> Result<Self> {
         let mut result = self.clone();
         let resized = self.width != 0 && (width != self.width || height != self.height);
@@ -569,8 +595,35 @@ pub fn encode(
     planes: usize,
     pixels: &[f32],
     metadata: &Metadata,
+    writer: impl Write,
+) -> Result<()> {
+    encode_with_icc(
+        format, depth, width, height, planes, pixels, metadata, None, writer,
+    )
+}
+
+/// `None` preserves source metadata; `Some` replaces the profile with the host's
+/// current profile. An empty slice explicitly removes the profile on save.
+#[allow(clippy::too_many_arguments)]
+pub fn encode_with_icc(
+    format: Format,
+    depth: u32,
+    width: usize,
+    height: usize,
+    planes: usize,
+    pixels: &[f32],
+    metadata: &Metadata,
+    profile: Option<&[u8]>,
     mut writer: impl Write,
 ) -> Result<()> {
+    if format == Format::Xisf
+        && let Some(profile) = profile.filter(|p| !p.is_empty())
+    {
+        crate::icc::validate(profile)?;
+        if !crate::icc::matches_planes(profile, planes) {
+            return Err("ICC profile does not match the document color mode".into());
+        }
+    }
     let metadata = metadata.adjusted(width, height, planes)?;
     let mut base = Vec::new();
     match depth {
@@ -627,11 +680,43 @@ pub fn encode(
                     img.children().push(node);
                 }
             }
-            let blocks: Vec<Vec<u8>> = metadata
-                .blocks
-                .iter()
-                .map(|s| B64.decode(s).map_err(|e| e.to_string()))
-                .collect::<Result<_>>()?;
+            let mut stored_blocks = metadata.blocks.clone();
+            if let Some(profile) = profile {
+                img.children().retain(|n| n.name() != "ICCProfile");
+                if !profile.is_empty() {
+                    let mut node = Node::element("ICCProfile");
+                    node.set("location", format!("seiza-block:{}", stored_blocks.len()));
+                    img.children().push(node);
+                    stored_blocks.push(B64.encode(profile));
+                }
+            }
+            // Discard orphaned source-profile attachments after replacing/removing
+            // the profile. Other metadata blocks still retain their original bytes.
+            fn compact(
+                node: &mut Node,
+                stored: &[String],
+                blocks: &mut Vec<Vec<u8>>,
+            ) -> Result<()> {
+                if let Some(index) = node
+                    .attr("location")
+                    .and_then(|v| v.strip_prefix("seiza-block:"))
+                {
+                    let index = index.parse::<usize>().map_err(|e| e.to_string())?;
+                    let bytes = B64
+                        .decode(stored.get(index).ok_or("Missing metadata block")?)
+                        .map_err(|e| e.to_string())?;
+                    node.set("location", format!("seiza-block:{}", blocks.len()));
+                    blocks.push(bytes);
+                }
+                if let Node::Element { children, .. } = node {
+                    for child in children {
+                        compact(child, stored, blocks)?;
+                    }
+                }
+                Ok(())
+            }
+            let mut blocks = Vec::new();
+            compact(&mut root, &stored_blocks, &mut blocks)?;
             let mut data_start = 4096usize;
             let xml = loop {
                 let mut positioned = root.clone();

@@ -58,7 +58,10 @@ struct Host {
     int transfers = 0;
     int cancelAfter = -1;
     PIDescriptorParameters descriptor{};
-    ~Host() { if (record.revertInfo) disposeHandle(record.revertInfo); }
+    ~Host() {
+        if (record.revertInfo) disposeHandle(record.revertInfo);
+        if (record.iCCprofileData) disposeHandle(record.iCCprofileData);
+    }
 };
 static Host* current = nullptr;
 static OSErr MACPASCAL getProperty(PIType signature, PIType key, int32, intptr_t*, Handle* output) {
@@ -150,6 +153,7 @@ static void initialize(Host& h, File file) {
     h.record.descriptorParameters = &h.descriptor;
     h.record.handleProcs = &handles;
     h.record.propertyProcs = &properties;
+    h.record.canUseICCProfiles = true;
 }
 static void setOptions(Host& h, uint32_t readDepth, uint32_t writeDepth) {
     SeizaOptions options;
@@ -192,7 +196,15 @@ static void makeCfaFixture(uint32_t format, uint32_t width, uint32_t height,
         }
 }
 
-static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded) {
+static std::vector<uint8_t> profileFixture(uint32_t planes, uint8_t marker) {
+    std::vector<uint8_t> bytes(132, 0);
+    bytes[3] = 132;
+    std::memcpy(bytes.data() + 16, planes == 1 ? "GRAY" : "RGB ", 4);
+    std::memcpy(bytes.data() + 36, "acsp", 4);
+    bytes[80] = marker;
+    return bytes;
+}
+static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, uint32_t planes) {
     if (format == 1) {
         size_t end = 0;
         while (end + 240 < encoded.size() && std::memcmp(encoded.data() + end, "END     ", 8)) end += 80;
@@ -205,7 +217,10 @@ static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded) {
         const uint32_t length = encoded[8] | (encoded[9] << 8) | (encoded[10] << 16) | (encoded[11] << 24);
         std::string xml(reinterpret_cast<const char*>(encoded.data() + 16), length);
         const std::string fields = "<FITSKeyword name=\"OBJECT\" value=\"'metadata-document-A'\" comment=\"original target\"/>"
-            "<FITSKeyword name=\"EXPTIME\" value=\"180\" comment=\"seconds\"/>";
+            "<FITSKeyword name=\"EXPTIME\" value=\"180\" comment=\"seconds\"/>"
+            "<ICCProfile location=\"attachment:" + std::to_string(encoded.size()) + ":132\"/>";
+        const auto profile = profileFixture(planes, 1);
+        encoded.insert(encoded.end(), profile.begin(), profile.end());
         const auto end = xml.find("</Image>");
         if (end != std::string::npos) xml.insert(end, fields);
         else {
@@ -255,7 +270,7 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         }
     }
     // A Unicode path also verifies that plug-in I/O only uses host file handles.
-    addMetadataFixture(format, encoded);
+    addMetadataFixture(format, encoded, planes);
 #ifdef _WIN32
     File file = CreateFileW(L"build\\native\\host-\u661f.tmp", GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
@@ -295,6 +310,13 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         success(reader, formatSelectorReadContinue);
         require(reader.pixels == expected && reader.record.data == nullptr, "Host received incorrect pixels");
         success(reader, formatSelectorReadFinish);
+        if (format == 2) {
+            const auto wanted = profileFixture(planes, 1);
+            require(reader.record.iCCprofileData && reader.record.iCCprofileSize == wanted.size(), "ICC import missing");
+            require(std::memcmp(lockHandle(reader.record.iCCprofileData, false), wanted.data(), wanted.size()) == 0,
+                "ICC import changed the source profile");
+            disposeHandle(reader.record.iCCprofileData); reader.record.iCCprofileData = nullptr; reader.record.iCCprofileSize = 0;
+        } else require(!reader.record.iCCprofileData, "FITS unexpectedly assigned an ICC profile");
         require(reader.state == 0, "Read state leaked");
         require(!reader.xmp.empty(), "Import did not store document XMP");
         if (cfaMode != UINT32_MAX) saveDefaults({readDepth, 0, true, false, cfaMode ? 0u : 1u});
@@ -308,6 +330,12 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
 
         Host writer{}; writer.entry = entry; initialize(writer, file);
         writer.xmp = reader.xmp; // The document carries XMP into Save As, independently of revertInfo.
+        const auto currentProfile = profileFixture(planes, 2);
+        if (format == 2) {
+            writer.record.iCCprofileData = newHandle(static_cast<int32>(currentProfile.size()));
+            writer.record.iCCprofileSize = static_cast<int32>(currentProfile.size());
+            std::memcpy(lockHandle(writer.record.iCCprofileData, false), currentProfile.data(), currentProfile.size());
+        }
         if (!useDefaults) setOptions(writer, readDepth, writeDepth);
         if (legacyOptions) {
             setOptions(writer, readDepth, 32);
@@ -345,8 +373,25 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         if (outputDepth == 16) for (auto& value : savedExpected)
             value = static_cast<float>(std::round(std::clamp(static_cast<double>(value), 0.0, 1.0) * 65535.0)) / 65535.0f;
         const bool equal = view.samples == expected.size() && std::equal(savedExpected.begin(), savedExpected.end(), view.pixels);
+        if (format == 2) {
+            std::vector<uint8_t> savedProfile;
+            require(seiza_image_icc(decoded, append, &savedProfile, error, sizeof(error)) == 0, error);
+            require(savedProfile == currentProfile, "Save did not use the document's converted ICC profile");
+            require(handleSize(writer.record.iCCprofileData) == currentProfile.size(), "Plugin disposed host-owned profile");
+        }
         seiza_image_free(decoded);
         require(equal, "Saved pixels changed across host round trip");
+        if (format == 2) {
+            disposeHandle(writer.record.iCCprofileData); writer.record.iCCprofileData = nullptr; writer.record.iCCprofileSize = 0;
+            success(writer, formatSelectorWriteStart);
+            encoded.resize(static_cast<size_t>(io.size())); io.seek(0);
+            require(io.read(encoded.data(), encoded.size()) == encoded.size(), "Untagged output read failed");
+            require(seiza_decode(format, encoded.data(), encoded.size(), &decoded, error, sizeof(error)) == 0, error);
+            std::vector<uint8_t> removed;
+            require(seiza_image_icc(decoded, append, &removed, error, sizeof(error)) == 0, error);
+            seiza_image_free(decoded);
+            require(removed.empty(), "Saving untagged resurrected the source ICC profile from XMP");
+        }
         // A different/new document must not inherit the previous document's fields.
         writer.xmp.clear();
         success(writer, formatSelectorWriteStart);

@@ -36,7 +36,12 @@ resource 'PiPL' (16000, FORMAT_NAME, purgeable) {
         PlugInMaxSize { 300000, 300000 },
         FormatMaxSize { { 32767, 32767 } },
         FormatMaxChannels { { 0, 1, 0, 3, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 3, 1 } },
+#if SEIZA_FORMAT == 2
+        FormatICCFlags { iccCanEmbedGray, iccCannotEmbedIndexed,
+            iccCanEmbedRGB, iccCannotEmbedCMYK }
+#else
         FormatICCFlags { iccCannotEmbedGray, iccCannotEmbedIndexed,
             iccCannotEmbedRGB, iccCannotEmbedCMYK }
+#endif
     }
 };

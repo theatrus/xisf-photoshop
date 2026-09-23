@@ -41,8 +41,8 @@ def make_bundle(destination: Path, format_name: str) -> Path:
         "FilteredExtensions": extensions,
         "FormatFlags": {"SavesImageResources": False, "CanRead": True, "CanWrite": True,
             "CanWriteIfRead": True, "CanWriteTransparency": False, "CanCreateThumbnail": False},
-        "FormatICCFlags": {"CanEmbedGray": False, "CanEmbedIndexed": False,
-            "CanEmbedRGB": False, "CanEmbedCMYK": False},
+        "FormatICCFlags": {"CanEmbedGray": format_name == "XISF", "CanEmbedIndexed": False,
+            "CanEmbedRGB": format_name == "XISF", "CanEmbedCMYK": False},
     }
     (contents / "Resources" / "PiPLs.json").write_text(json.dumps({"PiPLs": [pipl]}, indent=2) + "\n", encoding="utf-8")
     return bundle
