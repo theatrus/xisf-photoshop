@@ -138,8 +138,9 @@ The ICC integration was exercised in Photoshop 2026 on Windows with Float32
 XISF fixtures imported as 16-bit documents: a zlib-compressed Adobe RGB (1998)
 profile and a grayscale Black White profile both survived save byte-for-byte.
 **Convert to Profile** from Adobe RGB to sRGB produced an XISF containing the
-current sRGB profile; saving with **ICC Profile** unchecked omitted it. Native
-host tests additionally cover 32-bit documents. Interactive macOS verification
+current sRGB profile; saving with **ICC Profile** unchecked omitted it. A grayscale
+document converted to 32-bit saved as Float32 with Photoshop's Linear Grayscale
+Profile. Native host tests additionally cover importing directly as 32-bit. Interactive macOS verification
 remains separate from the CI host tests.
 
 ## CI and release packaging
