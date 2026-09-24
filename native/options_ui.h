@@ -5,7 +5,7 @@
 #include <string>
 
 #ifdef _WIN32
-struct SeizaDialogData { const wchar_t* title; const wchar_t* message; uint32_t depth; bool* remember; uint32_t* debayer; };
+struct SeizaDialogData { const wchar_t* title; const wchar_t* message; uint32_t depth; bool* remember; uint32_t* debayer; uint32_t* removeAstrometry; };
 inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_INITDIALOG) {
         const auto& data = *reinterpret_cast<SeizaDialogData*>(lparam);
@@ -16,6 +16,9 @@ inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wpara
             data.depth == 16 ? SEIZA_INTEGER_CHOICE : SEIZA_FLOAT_CHOICE);
         ShowWindow(GetDlgItem(window, SEIZA_REMEMBER_CHOICE), data.remember ? SW_SHOW : SW_HIDE);
         CheckDlgButton(window, SEIZA_REMEMBER_CHOICE, BST_UNCHECKED);
+        for (int control : {SEIZA_REMOVE_ASTROMETRY, SEIZA_ASTROMETRY_HINT})
+            ShowWindow(GetDlgItem(window, control), data.removeAstrometry ? SW_SHOW : SW_HIDE);
+        CheckDlgButton(window, SEIZA_REMOVE_ASTROMETRY, data.removeAstrometry && *data.removeAstrometry ? BST_CHECKED : BST_UNCHECKED);
         for (int control : {SEIZA_DEBAYER_LABEL, SEIZA_DEBAYER_CHOICE})
             ShowWindow(GetDlgItem(window, control), data.debayer ? SW_SHOW : SW_HIDE);
         if (data.debayer) {
@@ -31,6 +34,7 @@ inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wpara
             auto* data = reinterpret_cast<SeizaDialogData*>(GetWindowLongPtrW(window, DWLP_USER));
             if (data->remember) *data->remember = IsDlgButtonChecked(window, SEIZA_REMEMBER_CHOICE) == BST_CHECKED;
             if (data->debayer) *data->debayer = static_cast<uint32_t>(SendDlgItemMessageW(window, SEIZA_DEBAYER_CHOICE, CB_GETCURSEL, 0, 0));
+            if (data->removeAstrometry) *data->removeAstrometry = IsDlgButtonChecked(window, SEIZA_REMOVE_ASTROMETRY) == BST_CHECKED ? 1 : 0;
             EndDialog(window, IsDlgButtonChecked(window, SEIZA_INTEGER_CHOICE) == BST_CHECKED ? 16 : 32);
             return TRUE;
         }
@@ -56,6 +60,7 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
         CheckDlgButton(window, SEIZA_ASK_OPEN, data->askOnOpen ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, SEIZA_ASK_SAVE, data->askOnSave ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, SEIZA_DEBAYER_DEFAULT, data->debayer ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(window, SEIZA_ASTROMETRY_DEFAULT, data->removeAstrometry ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     }
     if (message == WM_COMMAND) {
@@ -67,6 +72,7 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
             data->askOnOpen = IsDlgButtonChecked(window, SEIZA_ASK_OPEN) == BST_CHECKED;
             data->askOnSave = IsDlgButtonChecked(window, SEIZA_ASK_SAVE) == BST_CHECKED;
             data->debayer = IsDlgButtonChecked(window, SEIZA_DEBAYER_DEFAULT) == BST_CHECKED ? 1 : 0;
+            data->removeAstrometry = IsDlgButtonChecked(window, SEIZA_ASTROMETRY_DEFAULT) == BST_CHECKED;
             EndDialog(window, IDOK); return TRUE;
         }
         if (LOWORD(wparam) == IDCANCEL) { EndDialog(window, IDCANCEL); return TRUE; }
@@ -87,11 +93,11 @@ inline bool editDefaults(SeizaDefaults& defaults) {
 }
 #else
 bool editDefaults(SeizaDefaults& defaults);
-uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember, uint32_t* debayer);
+uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember, uint32_t* debayer, uint32_t* removeAstrometry);
 #endif
 
 // Zero means Cancel. Call only from interactive read/options selectors.
-inline uint32_t chooseDepth(const char* title, const std::string& message, uint32_t initial, bool* remember = nullptr, uint32_t* debayer = nullptr) {
+inline uint32_t chooseDepth(const char* title, const std::string& message, uint32_t initial, bool* remember = nullptr, uint32_t* debayer = nullptr, uint32_t* removeAstrometry = nullptr) {
     if (remember) *remember = false;
 #ifdef _WIN32
     HMODULE module = nullptr;
@@ -100,12 +106,12 @@ inline uint32_t chooseDepth(const char* title, const std::string& message, uint3
         throw std::runtime_error("Cannot locate the plugin options dialog");
     const std::wstring wideTitle(title, title + std::strlen(title));
     const std::wstring wideMessage(message.begin(), message.end());
-    SeizaDialogData data{wideTitle.c_str(), wideMessage.c_str(), initial, remember, debayer};
+    SeizaDialogData data{wideTitle.c_str(), wideMessage.c_str(), initial, remember, debayer, removeAstrometry};
     const auto result = DialogBoxParamW(module, MAKEINTRESOURCEW(SEIZA_OPTIONS_DIALOG), GetActiveWindow(),
         seizaOptionsProc, reinterpret_cast<LPARAM>(&data));
     if (result == -1) throw std::runtime_error("Cannot display the plugin options dialog");
     return static_cast<uint32_t>(result);
 #else
-    return chooseDepthMac(title, message, initial, remember, debayer);
+    return chooseDepthMac(title, message, initial, remember, debayer, removeAstrometry);
 #endif
 }

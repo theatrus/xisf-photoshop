@@ -68,6 +68,8 @@ fn xisf_fixture() -> (Vec<u8>, Vec<u8>) {
         <Property id="Private:Vector" type="UI8Vector" length="8" compression="zlib:8" location="attachment:4112:{}"/>
         <Property id="Private:Inline" type="String" location="inline:base64">aGVsbG8=</Property>
         <Property id="PCL:AstrometricSolution:ReferenceImageCoordinates" type="String">1.5,1.5</Property>
+        <Property id="AstrometricSolution:ReferenceCelestialCoordinates" type="String">83,22</Property>
+        <FITSKeyword name="CRPIX1" value="1.5"/>
         <Resolution horizontal="300" vertical="300" unit="inch"/>
         <RGBWorkingSpace gamma="2.2" srgbGamma="true"/>
         <Thumbnail geometry="1:1:1" sampleFormat="UInt8" colorSpace="Gray" location="inline:base64">AA==</Thumbnail>
@@ -234,7 +236,7 @@ fn debayer_and_resize_remove_stale_cfa_and_known_wcs_but_keep_acquisition() {
         image.width = 1;
         image.height = 4;
         let output = save(Format::Xisf, 32, &image);
-        assert!(!xml(&output).contains("PCL:AstrometricSolution:"));
+        assert!(!xml(&output).contains("AstrometricSolution:"));
         let reopened = decode(Format::Xisf, &output).unwrap();
         assert!(
             !reopened
@@ -280,6 +282,98 @@ fn xmp_accepts_photoshop_attribute_serialization_and_rejects_corruption() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn explicit_astrometry_removal_at_unchanged_dimensions_preserves_acquisition_and_pixels() {
+    use seiza_photoshop::ffi;
+    unsafe extern "C" fn append(
+        context: *mut std::ffi::c_void,
+        bytes: *const u8,
+        size: usize,
+    ) -> i32 {
+        unsafe {
+            (&mut *context.cast::<Vec<u8>>())
+                .extend_from_slice(std::slice::from_raw_parts(bytes, size));
+        }
+        0
+    }
+    for (format, bytes) in [
+        (Format::Fits, fits_fixture().0),
+        (Format::Xisf, xisf_fixture().0),
+    ] {
+        let image = decode(format, &bytes).unwrap();
+        let xmp = image.metadata.xmp().unwrap();
+        for output_format in [Format::Fits, Format::Xisf] {
+            for remove in [0, 1, 2] {
+                let mut out = Vec::new();
+                let mut error = [0i8; 1024];
+                let status = unsafe {
+                    ffi::seiza_encode_with_options(
+                        output_format as u32,
+                        32,
+                        2,
+                        2,
+                        1,
+                        image.pixels.as_ptr(),
+                        image.pixels.len(),
+                        xmp.as_ptr(),
+                        xmp.len(),
+                        0,
+                        std::ptr::null(),
+                        0,
+                        remove,
+                        Some(append),
+                        (&mut out as *mut Vec<u8>).cast(),
+                        error.as_mut_ptr(),
+                        error.len(),
+                    )
+                };
+                if remove == 2 {
+                    assert_ne!(status, 0);
+                    assert!(out.is_empty());
+                    continue;
+                }
+                assert_eq!(status, 0);
+                let reopened = decode(output_format, &out).unwrap();
+                assert_eq!(reopened.pixels, image.pixels);
+                assert!(
+                    reopened
+                        .metadata
+                        .cards
+                        .iter()
+                        .any(|c| c.starts_with("EXPTIME"))
+                );
+                assert_eq!(
+                    reopened
+                        .metadata
+                        .cards
+                        .iter()
+                        .any(|c| c.starts_with("CRPIX1")),
+                    remove == 0
+                );
+                assert!(
+                    reopened
+                        .metadata
+                        .cards
+                        .iter()
+                        .any(|c| c.starts_with("BAYERPAT")),
+                    "Removing coordinates alone must not remove CFA metadata"
+                );
+                if format == Format::Xisf && output_format == Format::Xisf {
+                    assert_eq!(xml(&out).contains("PCL:AstrometricSolution:"), remove == 0);
+                    assert_eq!(xml(&out).contains("id=\"AstrometricSolution:"), remove == 0);
+                    assert!(xml(&out).contains("Observer:Name"));
+                    assert!(xml(&out).contains("Private:Vector"));
+                }
+                assert_eq!(
+                    image.metadata.xmp().unwrap(),
+                    xmp,
+                    "Save must not mutate document metadata"
+                );
+            }
+        }
+    }
 }
 
 #[test]

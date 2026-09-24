@@ -98,6 +98,7 @@ same settings, even without an image open.
 | Saved sample type | Match document depth |
 | Ask on every Open | Enabled |
 | Ask on every Save / Save As | Disabled |
+| Remove astrometric solution on save | Disabled; dimension changes still remove the solution automatically |
 
 The Open dialog starts with **Remember choice** unchecked. Check it to save
 your import choice for both formats and stop future Open prompts. Re-enable
@@ -145,10 +146,21 @@ Source metadata follows the Photoshop document through Save and Save As:
   not remove source metadata from the open document.
 
 Storage fields are updated for the saved image, and obsolete thumbnails are
-removed. Known WCS fields are removed when dimensions change. **Re-solve after
-geometric edits:** rotations and flips can invalidate retained coordinates even
-when dimensions stay the same. Acquisition metadata describes the source image;
-it does not undo changes to pixel values.
+removed. Cropping or resizing to different dimensions removes recognized FITS
+sky-coordinate (WCS) fields and both `AstrometricSolution:` and
+`PCL:AstrometricSolution:` XISF properties, including their attached grids.
+The plugin does not recalculate coordinates or shift the solution for a crop.
+
+For rotations, flips, warps, or crop-and-resample operations that leave dimensions
+unchanged, enable **Remove astrometric solution on save** in the plugin settings.
+For a document-specific choice, enable **Ask on every Save / Save As** and use
+**Remove astrometric solution** in the save options. That choice is remembered for
+the document; documents without an explicit choice follow the current default.
+Removal applies to the saved file and leaves the open document's source metadata
+intact. **Re-solve the saved image after geometric edits.**
+
+Exposure, filter, target, and other acquisition metadata are retained. They
+describe the source image and do not undo changes to pixel values.
 
 Metadata follows the document through PSD/PSB intermediates using XMP. Large
 binary properties, such as PixInsight's astrometric grids, are retained separately

@@ -312,6 +312,53 @@ pub unsafe extern "C" fn seiza_encode_with_profile(
     error: *mut c_char,
     capacity: usize,
 ) -> i32 {
+    unsafe {
+        seiza_encode_with_options(
+            format,
+            depth,
+            width,
+            height,
+            planes,
+            pixels,
+            samples,
+            xmp,
+            xmp_length,
+            replace_icc,
+            icc,
+            icc_length,
+            0,
+            callback,
+            context,
+            error,
+            capacity,
+        )
+    }
+}
+
+/// Encode with host ICC settings and optional removal of the astrometric solution.
+/// remove_astrometry must be 0 (automatic dimension checks) or 1 (always remove).
+/// # Safety
+/// Buffer and callback contracts follow seiza_encode_with_profile.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_encode_with_options(
+    format: u32,
+    depth: u32,
+    width: u32,
+    height: u32,
+    planes: u32,
+    pixels: *const f32,
+    samples: usize,
+    xmp: *const u8,
+    xmp_length: usize,
+    replace_icc: u32,
+    icc: *const u8,
+    icc_length: usize,
+    remove_astrometry: u32,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
     boundary(error, capacity, || {
         let count = crate::sample_count(width as usize, height as usize, planes as usize)?;
         if pixels.is_null()
@@ -319,6 +366,7 @@ pub unsafe extern "C" fn seiza_encode_with_profile(
             || xmp_length > crate::metadata::LIMIT * 2
             || (xmp.is_null() && xmp_length != 0)
             || replace_icc > 1
+            || remove_astrometry > 1
             || icc_length > crate::icc::LIMIT
             || (icc.is_null() && icc_length != 0)
         {
@@ -329,7 +377,10 @@ pub unsafe extern "C" fn seiza_encode_with_profile(
         } else {
             unsafe { slice::from_raw_parts(xmp, xmp_length) }
         };
-        let metadata = crate::metadata::Metadata::from_xmp(xmp)?.unwrap_or_default();
+        let mut metadata = crate::metadata::Metadata::from_xmp(xmp)?.unwrap_or_default();
+        if remove_astrometry == 1 {
+            metadata.remove_astrometry()?;
+        }
         let profile = if icc_length == 0 {
             &[]
         } else {

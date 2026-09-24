@@ -513,6 +513,18 @@ impl Metadata {
         }
     }
 
+    /// Remove coordinates invalidated by geometric edits, retaining acquisition data.
+    /// Only the metadata for this output is changed; the document's XMP is untouched.
+    pub fn remove_astrometry(&mut self) -> Result<()> {
+        self.cards.retain(|c| !wcs(keyword(c)));
+        if let Some(xml) = &self.xml {
+            let mut root = parse(xml)?;
+            clean(&mut root, false, true);
+            self.xml = Some(root.xml());
+        }
+        Ok(())
+    }
+
     fn adjusted(&self, width: usize, height: usize, planes: usize) -> Result<Self> {
         let mut result = self.clone();
         let resized = self.width != 0 && (width != self.width || height != self.height);
@@ -532,7 +544,7 @@ impl Metadata {
     }
 }
 
-fn clean(node: &mut Node, remove_cfa: bool, resized: bool) {
+fn clean(node: &mut Node, remove_cfa: bool, remove_astrometry: bool) {
     if node.name() == "Property" && node.attr("id") == Some("XISF:BlockAlignmentSize") {
         node.set("value", "4096");
     }
@@ -543,15 +555,17 @@ fn clean(node: &mut Node, remove_cfa: bool, resized: bool) {
             }
             if n.name() == "FITSKeyword" {
                 let k = n.attr("name").unwrap_or("");
-                return !structural(k) && !(remove_cfa && cfa(k)) && !(resized && wcs(k));
+                return !structural(k) && !(remove_cfa && cfa(k)) && !(remove_astrometry && wcs(k));
             }
-            !(resized
+            !(remove_astrometry
                 && n.name() == "Property"
-                && n.attr("id")
-                    .is_some_and(|id| id.starts_with("PCL:AstrometricSolution:")))
+                && n.attr("id").is_some_and(|id| {
+                    id.starts_with("PCL:AstrometricSolution:")
+                        || id.starts_with("AstrometricSolution:")
+                }))
         });
         for child in children {
-            clean(child, remove_cfa, resized);
+            clean(child, remove_cfa, remove_astrometry);
         }
     }
 }
@@ -985,5 +999,47 @@ mod large_metadata_tests {
         assert_eq!(small.version, 1);
         let small = Metadata::from_xmp(&small.xmp().unwrap()).unwrap().unwrap();
         assert!(output(&small, &store, Format::Xisf).is_ok());
+    }
+
+    #[test]
+    fn removed_solutions_do_not_require_or_copy_cached_grid_blocks() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store {
+            root: Some(directory.path().to_owned()),
+        };
+        let original = fixture(8 * 1024 * 1024, 1);
+        let mut metadata =
+            Metadata::read_with_store(Format::Xisf, &original, 1, 1, &store).unwrap();
+        metadata.xml = metadata.xml.map(|xml| {
+            xml.replace("Test:Block0", "AstrometricSolution:Grid:X")
+                .replace("Test:Duplicate", "PCL:AstrometricSolution:Grid:Y")
+        });
+        let path = fs::read_dir(directory.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        fs::remove_file(path).unwrap();
+        assert!(output(&metadata, &store, Format::Xisf).is_err());
+        let mut cropped = Vec::new();
+        encode_with_store(
+            Format::Xisf,
+            32,
+            2,
+            1,
+            1,
+            &[0.5, 0.75],
+            &metadata,
+            None,
+            &mut cropped,
+            &store,
+        )
+        .unwrap();
+        assert!(cropped.len() < 8192);
+        let mut removed = metadata.clone();
+        removed.remove_astrometry().unwrap();
+        assert!(output(&removed, &store, Format::Xisf).unwrap().len() < 8192);
+        assert!(metadata.xml.unwrap().contains("AstrometricSolution:"));
     }
 }

@@ -17,6 +17,7 @@ struct SeizaDefaults {
     bool askOnOpen = true;
     bool askOnSave = false;
     uint32_t debayer = 1; // Auto for recognized metadata. Never remember a forced pattern globally.
+    bool removeAstrometry = false;
 };
 
 inline std::filesystem::path preferencesPath() {
@@ -50,14 +51,16 @@ inline SeizaDefaults readDefaults() noexcept {
         std::string signature, trailing;
         unsigned read = 0, write = 0, askOpen = 0, askSave = 0;
         unsigned debayer = 0; // Preserve raw imports when migrating older preferences.
+        unsigned removeAstrometry = 0;
         if (!(input >> signature >> read >> write >> askOpen >> askSave)) return {};
-        if (signature == "SEIZA_DEFAULTS_V3" && !(input >> debayer)) return {};
-        if ((signature == "SEIZA_DEFAULTS_V1" || signature == "SEIZA_DEFAULTS_V2" || signature == "SEIZA_DEFAULTS_V3") &&
+        if ((signature == "SEIZA_DEFAULTS_V3" || signature == "SEIZA_DEFAULTS_V4") && !(input >> debayer)) return {};
+        if (signature == "SEIZA_DEFAULTS_V4" && !(input >> removeAstrometry)) return {};
+        if ((signature == "SEIZA_DEFAULTS_V1" || signature == "SEIZA_DEFAULTS_V2" || signature == "SEIZA_DEFAULTS_V3" || signature == "SEIZA_DEFAULTS_V4") &&
             (read == 16 || read == 32) && (write == 16 || write == 32 ||
             (write == 0 && signature != "SEIZA_DEFAULTS_V1")) &&
-            askOpen <= 1 && askSave <= 1 && debayer <= 1 && !(input >> trailing))
+            askOpen <= 1 && askSave <= 1 && debayer <= 1 && removeAstrometry <= 1 && !(input >> trailing))
             // Old settings seeded a fixed save depth even without an explicit choice.
-            return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0, debayer};
+            return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0, debayer, removeAstrometry != 0};
     } catch (...) { /* Missing/unreadable/corrupt preferences use factory defaults. */ }
     return {};
 }
@@ -80,8 +83,9 @@ inline void saveDefaults(const SeizaDefaults& defaults) {
     try {
         {
             std::ofstream output(temporary, std::ios::trunc);
-            output << "SEIZA_DEFAULTS_V3\n" << defaults.readDepth << ' ' << defaults.writeDepth
-                   << ' ' << defaults.askOnOpen << ' ' << defaults.askOnSave << ' ' << defaults.debayer << '\n';
+            output << "SEIZA_DEFAULTS_V4\n" << defaults.readDepth << ' ' << defaults.writeDepth
+                   << ' ' << defaults.askOnOpen << ' ' << defaults.askOnSave << ' ' << defaults.debayer
+                   << ' ' << defaults.removeAstrometry << '\n';
             output.flush();
             if (!output) throw std::runtime_error("Cannot write Seiza preferences");
             output.close();

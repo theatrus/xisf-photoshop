@@ -50,6 +50,12 @@ int32_t seiza_encode_with_metadata(uint32_t format, uint32_t depth, uint32_t wid
     uint32_t height, uint32_t planes, const float* pixels, size_t samples,
     const uint8_t* xmp, size_t xmp_length, SeizaWriteCallback callback,
     void* context, char* error, size_t capacity);
+// remove_astrometry: 0 removes only after dimension changes; 1 always removes.
+int32_t seiza_encode_with_options(uint32_t format, uint32_t depth, uint32_t width,
+    uint32_t height, uint32_t planes, const float* pixels, size_t samples,
+    const uint8_t* xmp, size_t xmp_length, uint32_t replace_icc,
+    const uint8_t* icc, size_t icc_length, uint32_t remove_astrometry,
+    SeizaWriteCallback callback, void* context, char* error, size_t capacity);
 #ifdef __cplusplus
 }
 #endif

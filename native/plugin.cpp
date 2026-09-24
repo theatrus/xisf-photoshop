@@ -141,14 +141,15 @@ std::vector<uint8_t> loadProfile(FormatRecord& r) {
 bool loadOptions(FormatRecord& r, SeizaOptions& options) {
     if (!r.revertInfo || !canStoreOptions(r)) return false;
     const auto size = r.handleProcs->getSizeProc(r.revertInfo);
-    if (size != 16 && size != sizeof(SeizaOptions)) return false;
+    if (size != 16 && size != 20 && size != sizeof(SeizaOptions)) return false;
     auto* data = r.handleProcs->lockProc(r.revertInfo, false);
     if (!data) throw std::bad_alloc();
     SeizaOptions stored;
     std::memcpy(&stored, data, static_cast<size_t>(size));
     r.handleProcs->unlockProc(r.revertInfo);
     if (stored.magic != options.magic || stored.version < 1 || stored.version > options.version ||
-        (stored.version == 3 && size != sizeof(stored)) || stored.debayer > 5 ||
+        (stored.version >= 3 && size != (stored.version == 3 ? 20 : sizeof(stored))) ||
+        stored.debayer > 5 || stored.removeAstrometry > 2 ||
         (stored.readDepth != 16 && stored.readDepth != 32) ||
         (stored.writeDepth != 16 && stored.writeDepth != 32 &&
             !(stored.version >= 2 && stored.writeDepth == 0))) return false;
@@ -156,6 +157,7 @@ bool loadOptions(FormatRecord& r, SeizaOptions& options) {
         stored.writeDepth = 0;
     }
     if (stored.version < 3) stored.debayer = 0;
+    if (stored.version < 4) stored.removeAstrometry = 2;
     stored.version = options.version;
     options = stored;
     return true;
@@ -163,7 +165,7 @@ bool loadOptions(FormatRecord& r, SeizaOptions& options) {
 
 void storeOptions(FormatRecord& r, const SeizaOptions& options) {
     if (!canStoreOptions(r)) {
-        if (options.readDepth == 16 || options.writeDepth == 16 || options.debayer)
+        if (options.readDepth == 16 || options.writeDepth == 16 || options.debayer || options.removeAstrometry != 2)
             throw std::runtime_error("Photoshop's handle suite is required to remember conversion options");
         return;
     }
@@ -255,9 +257,11 @@ void writeOptions(FormatRecord& r) {
             "are lost. No stretch or automatic rescaling is applied.\n\n"
             "Photoshop 16-bit documents already have about 15 bits plus an endpoint of precision. "
             "Choose 32-bit float to avoid further quantization.";
+        uint32_t removeAstrometry = options.removeAstrometry == 2 ? defaults.removeAstrometry : options.removeAstrometry;
         options.writeDepth = chooseDepth("FITS / XISF - Save image", text,
-            options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth));
+            options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth), nullptr, nullptr, &removeAstrometry);
         if (!options.writeDepth) throw HostError{userCanceledErr};
+        options.removeAstrometry = removeAstrometry;
     }
     storeOptions(r, options);
     r.data = nullptr;
@@ -458,9 +462,10 @@ void writeStart(FormatRecord& r) {
     WriteContext context{&r};
     char error[1024]{};
     const auto outputDepth = options.writeDepth ? options.writeDepth : static_cast<uint32_t>(r.depth);
-    if (seiza_encode_with_profile(kFormat, outputDepth, w, h, r.planes, samples.data(), count,
+    const uint32_t removeAstrometry = options.removeAstrometry == 2 ? readDefaults().removeAstrometry : options.removeAstrometry;
+    if (seiza_encode_with_options(kFormat, outputDepth, w, h, r.planes, samples.data(), count,
         metadata.data(), metadata.size(), kFormat == 2 && r.canUseICCProfiles ? 1u : 0u,
-        profile.data(), profile.size(), writeBytes, &context, error, sizeof(error))) {
+        profile.data(), profile.size(), removeAstrometry, writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);
     }

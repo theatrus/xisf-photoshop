@@ -207,9 +207,9 @@ static std::vector<uint8_t> profileFixture(uint32_t planes, uint8_t marker) {
 static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, uint32_t planes) {
     if (format == 1) {
         size_t end = 0;
-        while (end + 240 < encoded.size() && std::memcmp(encoded.data() + end, "END     ", 8)) end += 80;
-        require(end + 240 < 2880, "Missing metadata fixture header space");
-        for (const char* card : {"OBJECT  = 'metadata-document-A' / original target", "EXPTIME =                  180 / seconds", "END"}) {
+        while (end + 320 < encoded.size() && std::memcmp(encoded.data() + end, "END     ", 8)) end += 80;
+        require(end + 320 < 2880, "Missing metadata fixture header space");
+        for (const char* card : {"OBJECT  = 'metadata-document-A' / original target", "EXPTIME =                  180 / seconds", "CRPIX1  =                  1.5", "END"}) {
             std::fill_n(encoded.data() + end, 80, static_cast<uint8_t>(' '));
             std::memcpy(encoded.data() + end, card, std::strlen(card)); end += 80;
         }
@@ -218,6 +218,9 @@ static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, u
         std::string xml(reinterpret_cast<const char*>(encoded.data() + 16), length);
         const std::string fields = "<FITSKeyword name=\"OBJECT\" value=\"'metadata-document-A'\" comment=\"original target\"/>"
             "<FITSKeyword name=\"EXPTIME\" value=\"180\" comment=\"seconds\"/>"
+            "<FITSKeyword name=\"CRPIX1\" value=\"1.5\"/>"
+            "<Property id=\"AstrometricSolution:ReferenceImageCoordinates\" type=\"String\">1.5,1.5</Property>"
+            "<Property id=\"PCL:AstrometricSolution:ReferenceImageCoordinates\" type=\"String\">1.5,1.5</Property>"
             "<ICCProfile location=\"attachment:" + std::to_string(encoded.size()) + ":132\"/>";
         const auto profile = profileFixture(planes, 1);
         encoded.insert(encoded.end(), profile.begin(), profile.end());
@@ -239,7 +242,8 @@ static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, u
 
 static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
     uint32_t readDepth, uint32_t writeDepth, bool interactive = false, bool useDefaults = false,
-    bool changeMode = false, bool legacyOptions = false, uint32_t cfaMode = UINT32_MAX, bool tagged = true) {
+    bool changeMode = false, uint32_t legacyOptions = 0, uint32_t cfaMode = UINT32_MAX, bool tagged = true,
+    uint32_t astrometry = 2) {
 #ifdef _WIN32
     auto entry = reinterpret_cast<Entry>(GetProcAddress(module, "PluginMain"));
     require(FindResourceW(module, MAKEINTRESOURCEW(16000), L"PiPL") != nullptr, "PiPL resource missing");
@@ -338,9 +342,13 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         }
         if (!useDefaults) setOptions(writer, readDepth, writeDepth);
         if (legacyOptions) {
-            setOptions(writer, readDepth, 32);
-            reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->version = 1;
-            reinterpret_cast<TestHandle*>(writer.record.revertInfo)->bytes.resize(16);
+            setOptions(writer, readDepth, legacyOptions == 1 ? 32 : writeDepth);
+            reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->version = legacyOptions;
+            reinterpret_cast<TestHandle*>(writer.record.revertInfo)->bytes.resize(legacyOptions == 3 ? 20 : 16);
+        }
+        if (astrometry <= 1) reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->removeAstrometry = astrometry;
+        if (astrometry == 3) { // Change defaults after opening the source document.
+            auto defaults = readDefaults(); defaults.removeAstrometry = true; saveDefaults(defaults);
         }
         if (interactive || useDefaults) writer.descriptor.playInfo = plugInDialogDisplay;
         const auto documentDepth = changeMode ? (readDepth == 16 ? 32u : 16u) : readDepth;
@@ -366,6 +374,11 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
             "Saved sample type does not match the requested/document depth");
         require(header.find("metadata-document-A") != std::string::npos && header.find("EXPTIME") != std::string::npos,
             "Save As lost source metadata independently of revertInfo");
+        const bool removeAstrometry = astrometry == 1 || astrometry == 3;
+        require((header.find("CRPIX1") == std::string::npos) == removeAstrometry,
+            "Save did not apply the astrometry choice to FITS coordinates");
+        if (format == 2) require((header.find("AstrometricSolution:") == std::string::npos) == removeAstrometry,
+            "Save did not apply the astrometry choice to both XISF property prefixes");
         SeizaImage* decoded = nullptr;
         require(seiza_decode(format, encoded.data(), encoded.size(), &decoded, error, sizeof(error)) == 0, error);
         SeizaImageView view{}; seiza_image_view(decoded, &view);
@@ -426,15 +439,16 @@ static void checkDefaults() {
     auto saved = readDefaults();
     require(saved.readDepth == 16 && saved.writeDepth == 32 && saved.askOnOpen && !saved.askOnSave,
         "Preferences did not persist");
-    saveDefaults({32, 16, false, true});
+    saveDefaults({32, 16, false, true, 1, true});
     saved = readDefaults();
-    require(saved.readDepth == 32 && saved.writeDepth == 16 && !saved.askOnOpen && saved.askOnSave,
+    require(saved.readDepth == 32 && saved.writeDepth == 16 && !saved.askOnOpen && saved.askOnSave && saved.removeAstrometry,
         "Replacing preferences did not persist");
     bool rejected = false;
     try { saveDefaults({8, 16, false, false}); } catch (const std::exception&) { rejected = true; }
     require(rejected && readDefaults().writeDepth == 16, "Invalid preferences replaced valid preferences");
     for (const char* content : {"broken", "SEIZA_DEFAULTS_V1\n16 8 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 3 0\n",
-        "SEIZA_DEFAULTS_V3\n16 16 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 0 0\ntrailing"}) {
+        "SEIZA_DEFAULTS_V3\n16 16 0 0\n", "SEIZA_DEFAULTS_V4\n16 16 0 0 1 2\n",
+        "SEIZA_DEFAULTS_V4\n16 16 0 0 1\n", "SEIZA_DEFAULTS_V1\n16 16 0 0\ntrailing"}) {
         { std::ofstream file(preferencesPath()); file << content; }
         const auto value = readDefaults();
         require(value.readDepth == 32 && value.writeDepth == 0 && value.askOnOpen && !value.askOnSave,
@@ -444,6 +458,10 @@ static void checkDefaults() {
     saved = readDefaults();
     require(saved.readDepth == 16 && saved.writeDepth == 0 && saved.askOnOpen && !saved.askOnSave,
         "Legacy settings did not migrate to matching export");
+    { std::ofstream file(preferencesPath()); file << "SEIZA_DEFAULTS_V3\n16 0 1 0 1\n"; }
+    saved = readDefaults();
+    require(saved.readDepth == 16 && saved.debayer == 1 && !saved.removeAstrometry,
+        "Legacy preferences must retain automatic astrometry cleanup");
     saveDefaults({32, 16, true, true});
     rememberImportChoice(16);
     saved = readDefaults();
@@ -540,6 +558,15 @@ int main(int argc, char** argv) {
                 if (writeDepth == 0) {
                     run(module, format, 3, 2, 3, readDepth, 0, false, false, true);
                     run(module, format, 3, 2, 3, readDepth, 0, false, false, false, true);
+                    for (uint32_t astrometry : {0u, 1u, 3u}) {
+                        run(module, format, 3, 2, 3, readDepth, 0, false, false, false, 0, UINT32_MAX, true, astrometry);
+                        saveDefaults({});
+                    }
+                    saveDefaults({readDepth, 0, false, false});
+                    run(module, format, 3, 2, 3, readDepth, 0, false, true, false, 0, UINT32_MAX, true, 3);
+                    saveDefaults({});
+                    run(module, format, 3, 2, 3, readDepth, 0, false, false, false, 3, UINT32_MAX, true, 3);
+                    saveDefaults({});
                 }
                 saveDefaults({});
             }
