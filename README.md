@@ -150,9 +150,22 @@ geometric edits:** rotations and flips can invalidate retained coordinates even
 when dimensions stay the same. Acquisition metadata describes the source image;
 it does not undo changes to pixel values.
 
-Metadata is carried in the document's XMP, so a PSD/PSB intermediate can carry it
-too. Workflows that strip XMP remove this metadata. If an older plugin discarded
-metadata, reopen the original FITS/XISF with version 0.5.0 or later to capture it.
+Metadata follows the document through PSD/PSB intermediates using XMP. Large
+binary properties, such as PixInsight's astrometric grids, are retained separately
+in a local metadata folder and copied back unchanged when saving XISF:
+
+- **Windows:** `%LOCALAPPDATA%\Seiza\Photoshop\Metadata`
+- **macOS:** `~/Library/Application Support/Seiza/Photoshop/Metadata`
+
+Saved XISFs are self-contained. To move a PSD/PSB with large binary metadata to
+another computer, also copy the metadata folder to the corresponding location.
+Keep this folder while those editing documents are in use; the plugin does not
+automatically delete retained blocks. If a block is missing or damaged, saving
+XISF reports an error. Reopen the original or a previously saved XISF to restore
+the blocks, or restore the folder from backup.
+
+Workflows that strip XMP remove the metadata and its references. If an older
+plugin discarded metadata, reopen the original FITS/XISF to capture it.
 
 ## Color profiles
 
@@ -181,9 +194,10 @@ behavior. FITS does not carry an ICC profile through these plugins.
   checksums produce an error.
 - Higher-precision input can lose precision when converted to 32-bit float.
   Images containing NaN or infinite samples are rejected.
-- Metadata is limited to 64 MiB, with a 16 MiB XISF XML-header limit. External
-  XISF metadata blocks are unsupported; use a monolithic XISF file. Missing or
-  malformed metadata produces an error.
+- Large binary metadata is limited by available disk space rather than the
+  document's 64 MiB metadata-envelope limit. XISF XML headers are limited to
+  16 MiB. External source XISF blocks are unsupported; use a monolithic XISF
+  file. Missing or malformed metadata produces an error.
 - Photoshop Actions use remembered document choices or saved defaults; custom
   import/export choices are not recorded in Actions.
 

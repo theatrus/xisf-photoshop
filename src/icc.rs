@@ -129,10 +129,7 @@ pub(crate) fn decode(xml: &str, blocks: &[String]) -> Result<Vec<u8>> {
             .parse::<usize>()
             .map_err(|_| "Invalid ICC attachment index")?;
         let encoded = blocks.get(index).ok_or("Missing ICC attachment")?;
-        if encoded.len() > LIMIT.div_ceil(3) * 4 {
-            return Err("ICC attachment exceeds 16 MiB".into());
-        }
-        B64.decode(encoded).map_err(|e| e.to_string())?
+        crate::metadata_store::bytes(encoded, LIMIT)?
     } else if let Some(encoding) = location.strip_prefix("inline:") {
         text_data(node, encoding)?
     } else if location == "embedded" {

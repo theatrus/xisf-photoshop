@@ -2,11 +2,13 @@
 //! namespace. Native headers remain readable by other astronomy applications.
 //! Format switches copy compatible FITS keywords; same-format saves retain the
 //! full source metadata without imposing a reduced key/value schema.
+//! Large binary blocks use persistent local storage until copied into a saved XISF.
+use crate::metadata_store::{Block, INLINE_BUDGET, Store};
 use crate::{Format, Result};
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use quick_xml::{Reader, events::Event};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 pub const LIMIT: usize = 64 * 1024 * 1024;
 const NS: &str = "https://seiza.fyi/ns/photoshop/1.0/";
@@ -325,7 +327,7 @@ impl Metadata {
         }
         let value: Self = serde_json::from_slice(bytes)
             .map_err(|e| format!("Invalid astronomy metadata: {e}"))?;
-        if value.version != 1 {
+        if !matches!(value.version, 1 | 2) {
             return Err("Unsupported astronomy metadata version".into());
         }
         if value.cards.iter().any(|c| c.len() != 80 || !c.is_ascii()) {
@@ -375,6 +377,16 @@ impl Metadata {
     }
 
     pub fn read(format: Format, bytes: &[u8], width: usize, height: usize) -> Result<Self> {
+        Self::read_with_store(format, bytes, width, height, &Store::default())
+    }
+
+    fn read_with_store(
+        format: Format,
+        bytes: &[u8],
+        width: usize,
+        height: usize,
+        store: &Store,
+    ) -> Result<Self> {
         let mut result = Self {
             width,
             height,
@@ -455,8 +467,19 @@ impl Metadata {
                         }
                     }
                 }
-                img.children().retain(|n| n.name() != "Thumbnail");
-                collect_blocks(&mut root, bytes, &mut result.blocks)?;
+                img.children()
+                    .retain(|n| !matches!(n.name(), "Thumbnail" | "Data"));
+                // The image's direct text can only describe inline pixel storage.
+                img.children().retain(|n| !matches!(n, Node::Text(_)));
+                let mut collector = Collector {
+                    store,
+                    ranges: HashMap::new(),
+                    inline_bytes: 0,
+                };
+                collector.collect(&mut root, bytes, &mut result.blocks)?;
+                if result.blocks.iter().any(|b| b.starts_with("cache:")) {
+                    result.version = 2;
+                }
                 result.xml = Some(root.xml());
             }
         }
@@ -533,38 +556,59 @@ fn clean(node: &mut Node, remove_cfa: bool, resized: bool) {
     }
 }
 
-fn collect_blocks(node: &mut Node, bytes: &[u8], blocks: &mut Vec<String>) -> Result<()> {
-    if let Some(location) = node.attr("location").map(str::to_owned) {
-        if let Some(spec) = location.strip_prefix("attachment:") {
-            let (start, size) = spec.split_once(':').ok_or("Invalid metadata attachment")?;
-            let start = start.parse::<usize>().map_err(|e| e.to_string())?;
-            let size = size.parse::<usize>().map_err(|e| e.to_string())?;
-            if size > LIMIT || blocks.iter().map(String::len).sum::<usize>() + size > LIMIT {
-                return Err("Metadata attachments exceed 64 MiB".into());
+struct Collector<'a> {
+    store: &'a Store,
+    ranges: HashMap<(usize, usize), usize>,
+    inline_bytes: usize,
+}
+
+impl Collector<'_> {
+    fn collect(&mut self, node: &mut Node, bytes: &[u8], blocks: &mut Vec<String>) -> Result<()> {
+        if let Some(location) = node.attr("location").map(str::to_owned) {
+            if let Some(spec) = location.strip_prefix("attachment:") {
+                let (start, size) = spec.split_once(':').ok_or("Invalid metadata attachment")?;
+                let start = start.parse::<usize>().map_err(|e| e.to_string())?;
+                let size = size.parse::<usize>().map_err(|e| e.to_string())?;
+                let data = bytes
+                    .get(
+                        start
+                            ..start
+                                .checked_add(size)
+                                .ok_or("Metadata attachment overflow")?,
+                    )
+                    .ok_or("Truncated metadata attachment")?;
+                let index = if let Some(index) = self.ranges.get(&(start, size)) {
+                    *index
+                } else {
+                    let index = blocks.len();
+                    // Count the encoded size consistently, without allocating first.
+                    let encoded_size = size.checked_add(2).and_then(|n| (n / 3).checked_mul(4));
+                    let block =
+                        if encoded_size.is_some_and(|n| n <= INLINE_BUDGET - self.inline_bytes) {
+                            self.inline_bytes += encoded_size.unwrap();
+                            B64.encode(data)
+                        } else {
+                            self.store.retain(data)?
+                        };
+                    blocks.push(block);
+                    self.ranges.insert((start, size), index);
+                    index
+                };
+                node.set("location", format!("seiza-block:{index}"));
+            } else if !location.starts_with("inline:") && location != "embedded" {
+                return Err(
+                    "External XISF metadata blocks cannot be retained; use a monolithic XISF file"
+                        .into(),
+                );
             }
-            let data = bytes
-                .get(
-                    start
-                        ..start
-                            .checked_add(size)
-                            .ok_or("Metadata attachment overflow")?,
-                )
-                .ok_or("Truncated metadata attachment")?;
-            node.set("location", format!("seiza-block:{}", blocks.len()));
-            blocks.push(B64.encode(data));
-        } else if !location.starts_with("inline:") && location != "embedded" {
-            return Err(
-                "External XISF metadata blocks cannot be retained; use a monolithic XISF file"
-                    .into(),
-            );
         }
-    }
-    if let Node::Element { children, .. } = node {
-        for child in children {
-            collect_blocks(child, bytes, blocks)?;
+        if let Node::Element { children, .. } = node {
+            for child in children {
+                self.collect(child, bytes, blocks)?;
+            }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 fn locate_blocks(node: &mut Node, offsets: &[(usize, usize)]) -> Result<()> {
@@ -614,7 +658,34 @@ pub fn encode_with_icc(
     pixels: &[f32],
     metadata: &Metadata,
     profile: Option<&[u8]>,
+    writer: impl Write,
+) -> Result<()> {
+    encode_with_store(
+        format,
+        depth,
+        width,
+        height,
+        planes,
+        pixels,
+        metadata,
+        profile,
+        writer,
+        &Store::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_with_store(
+    format: Format,
+    depth: u32,
+    width: usize,
+    height: usize,
+    planes: usize,
+    pixels: &[f32],
+    metadata: &Metadata,
+    profile: Option<&[u8]>,
     mut writer: impl Write,
+    store: &Store,
 ) -> Result<()> {
     if format == Format::Xisf
         && let Some(profile) = profile.filter(|p| !p.is_empty())
@@ -695,28 +766,45 @@ pub fn encode_with_icc(
             fn compact(
                 node: &mut Node,
                 stored: &[String],
-                blocks: &mut Vec<Vec<u8>>,
+                blocks: &mut Vec<Block>,
+                indices: &mut HashMap<usize, usize>,
+                store: &Store,
             ) -> Result<()> {
                 if let Some(index) = node
                     .attr("location")
                     .and_then(|v| v.strip_prefix("seiza-block:"))
                 {
                     let index = index.parse::<usize>().map_err(|e| e.to_string())?;
-                    let bytes = B64
-                        .decode(stored.get(index).ok_or("Missing metadata block")?)
-                        .map_err(|e| e.to_string())?;
-                    node.set("location", format!("seiza-block:{}", blocks.len()));
-                    blocks.push(bytes);
+                    let new_index = if let Some(index) = indices.get(&index) {
+                        *index
+                    } else {
+                        // Validate every retained block before writing any output.
+                        let block = store.open(
+                            stored.get(index).ok_or("Missing metadata block")?,
+                            usize::MAX,
+                        )?;
+                        let new_index = blocks.len();
+                        blocks.push(block);
+                        indices.insert(index, new_index);
+                        new_index
+                    };
+                    node.set("location", format!("seiza-block:{new_index}"));
                 }
                 if let Node::Element { children, .. } = node {
                     for child in children {
-                        compact(child, stored, blocks)?;
+                        compact(child, stored, blocks, indices, store)?;
                     }
                 }
                 Ok(())
             }
             let mut blocks = Vec::new();
-            compact(&mut root, &stored_blocks, &mut blocks)?;
+            compact(
+                &mut root,
+                &stored_blocks,
+                &mut blocks,
+                &mut HashMap::new(),
+                store,
+            )?;
             let mut data_start = 4096usize;
             let xml = loop {
                 let mut positioned = root.clone();
@@ -725,13 +813,13 @@ pub fn encode_with_icc(
                 let mut end = data_start.checked_add(length).ok_or("XISF size overflow")?;
                 let offsets: Vec<_> = blocks
                     .iter()
-                    .map(|b| {
-                        end = end.div_ceil(4096) * 4096;
+                    .map(|b| -> Result<_> {
+                        end = end.checked_add(4095).ok_or("XISF size overflow")? / 4096 * 4096;
                         let offset = (end, b.len());
-                        end += b.len();
-                        offset
+                        end = end.checked_add(b.len()).ok_or("XISF size overflow")?;
+                        Ok(offset)
                     })
-                    .collect();
+                    .collect::<Result<_>>()?;
                 locate_blocks(&mut positioned, &offsets)?;
                 let xml = positioned.xml();
                 if xml.len() > 16 * 1024 * 1024 {
@@ -754,10 +842,148 @@ pub fn encode_with_icc(
             for block in blocks {
                 let padding = (4096 - position % 4096) % 4096;
                 write(&mut writer, &vec![0; padding])?;
-                write(&mut writer, &block)?;
-                position += padding + block.len();
+                let size = block.len();
+                block.write(&mut writer)?;
+                position += padding + size;
             }
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod large_metadata_tests {
+    use super::*;
+    use std::fs;
+
+    fn fixture(size: usize, count: usize) -> Vec<u8> {
+        let mut properties = String::new();
+        for index in 0..count {
+            let start = 4100 + index * size;
+            properties.push_str(&format!(
+                r#"<Property id="Test:Block{index}" type="UI8Vector" length="{size}" location="attachment:{start}:{size}"/>"#
+            ));
+        }
+        // Two properties can refer to the very same binary data.
+        properties.push_str(&format!(
+            r#"<Property id="Test:Duplicate" type="UI8Vector" length="{size}" location="attachment:4100:{size}"/>"#
+        ));
+        let xml = format!(
+            r#"<xisf version="1.0" xmlns="http://www.pixinsight.com/xisf"><Image geometry="1:1:1" sampleFormat="Float32" colorSpace="Gray" location="attachment:4096:4">{properties}</Image></xisf>"#
+        );
+        let mut bytes = b"XISF0100".to_vec();
+        bytes.extend((xml.len() as u32).to_le_bytes());
+        bytes.extend([0; 4]);
+        bytes.extend(xml.as_bytes());
+        bytes.resize(4096, 0);
+        bytes.extend(0.25f32.to_le_bytes());
+        // Deterministic arbitrary binary data; no dependency on compression ratios.
+        let mut seed = 123456789u32;
+        for _ in 0..size * count {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            bytes.push(seed as u8);
+        }
+        bytes
+    }
+
+    fn output(metadata: &Metadata, store: &Store, format: Format) -> Result<Vec<u8>> {
+        let mut out = Vec::new();
+        let result = encode_with_store(
+            format,
+            32,
+            1,
+            1,
+            1,
+            &[0.75],
+            metadata,
+            None,
+            &mut out,
+            store,
+        );
+        if result.is_err() {
+            assert!(out.is_empty(), "metadata failure must precede output");
+        }
+        result.map(|()| out)
+    }
+
+    #[test]
+    fn over_64_mib_survives_xmp_and_save_without_embedding_or_duplicating_blocks() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store {
+            root: Some(directory.path().to_owned()),
+        };
+        let original = fixture(65 * 1024 * 1024, 1);
+        let metadata = Metadata::read_with_store(Format::Xisf, &original, 1, 1, &store).unwrap();
+        assert_eq!(metadata.version, 2);
+        assert_eq!(metadata.blocks.len(), 1);
+        let xmp = metadata.xmp().unwrap();
+        assert!(xmp.len() < 4096, "binary data should stay out of XMP");
+        // Only XMP survives a PSD/PSB close/reopen; no live image/source file needed.
+        let metadata = Metadata::from_xmp(&xmp).unwrap().unwrap();
+        let saved = output(&metadata, &store, Format::Xisf).unwrap();
+        assert_eq!(
+            seiza_xisf::read_image_from_bytes(&saved, 0)
+                .unwrap()
+                .image
+                .into_physical_f32(),
+            [0.75]
+        );
+        let length = u32::from_le_bytes(saved[8..12].try_into().unwrap()) as usize;
+        let xml = std::str::from_utf8(&saved[16..16 + length]).unwrap();
+        let doc = roxmltree::Document::parse(xml).unwrap();
+        let locations: Vec<_> = doc
+            .descendants()
+            .filter(|n| n.tag_name().name() == "Property")
+            .map(|n| n.attribute("location").unwrap())
+            .collect();
+        assert_eq!(locations[0], locations[1]);
+        let parts: Vec<usize> = locations[0]
+            .split(':')
+            .skip(1)
+            .map(|n| n.parse().unwrap())
+            .collect();
+        assert_eq!(&saved[parts[0]..parts[0] + parts[1]], &original[4100..]);
+        assert!(saved.len() < original.len() + 8192);
+        assert!(!xml.contains("cache:"));
+
+        let path = fs::read_dir(directory.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        fs::remove_file(&path).unwrap();
+        assert!(
+            output(&metadata, &store, Format::Xisf)
+                .unwrap_err()
+                .contains("Reopen the original XISF")
+        );
+        // Changing to FITS does not require XISF-only binary data.
+        assert!(output(&metadata, &store, Format::Fits).is_ok());
+        // The saved XISF is self-contained and restores missing local storage.
+        let reopened = Metadata::read_with_store(Format::Xisf, &saved, 1, 1, &store).unwrap();
+        assert_eq!(reopened.blocks, metadata.blocks);
+        assert_eq!(output(&reopened, &store, Format::Xisf).unwrap(), saved);
+    }
+
+    #[test]
+    fn aggregate_inline_budget_is_bounded_and_existing_xmp_stays_compatible() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store {
+            root: Some(directory.path().to_owned()),
+        };
+        let original = fixture(4 * 1024 * 1024, 3);
+        let metadata = Metadata::read_with_store(Format::Xisf, &original, 1, 1, &store).unwrap();
+        assert_eq!(metadata.blocks.len(), 3);
+        assert!(!metadata.blocks[0].starts_with("cache:"));
+        assert!(metadata.blocks[1..].iter().all(|b| b.starts_with("cache:")));
+        assert!(metadata.xmp().unwrap().len() < 12 * 1024 * 1024);
+        // Version 1 inline metadata from previous releases still round trips.
+        let small = Metadata::read_with_store(Format::Xisf, &fixture(32, 1), 1, 1, &store).unwrap();
+        assert_eq!(small.version, 1);
+        let small = Metadata::from_xmp(&small.xmp().unwrap()).unwrap().unwrap();
+        assert!(output(&small, &store, Format::Xisf).is_ok());
+    }
 }

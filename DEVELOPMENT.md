@@ -37,6 +37,31 @@ neither Adobe's SDK nor Inno Setup's compiler is distributed. The output is
 Installer tests use a separate app identity and folders under `build/installer-tests`;
 they do not install plugins into Photoshop or require closing your real Photoshop.
 
+## Large metadata verification
+
+`cargo test --locked` includes a generated 65 MiB metadata attachment, aggregate
+XMP size limits, duplicate references, missing/corrupt storage, and recovery from
+a self-contained saved XISF. Tests use isolated temporary metadata folders.
+
+For a full-size local image, run:
+
+```sh
+cargo run --release --locked --example verify_metadata -- input.xisf output.xisf
+```
+
+The output must not exist. This exercises decode, document XMP, save, and reopen;
+it checks pixel hashes, binary attachment hashes and attributes, FITS cards, and
+the ICC profile. It uses the normal persistent metadata folder. Source images
+remain untouched and must not be added to the repository.
+
+The XMP envelope remains version 1 for inline metadata. Version 2 allows
+content-addressed local block references; older plugins reject that version.
+The inline attachment budget is 8 MiB of base64 data. Larger blocks are written
+atomically to the user's metadata folder and verified before saving. No automatic
+eviction is safe because references can outlive the Photoshop session in PSD/PSB
+files. Saved XISF attachments are self-contained, including original compression
+and checksum attributes.
+
 ## macOS build
 
 On a Mac, install Xcode, Rust, and Python 3.10 or newer, and extract the Mac Photoshop SDK:

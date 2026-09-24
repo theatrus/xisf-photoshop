@@ -7,6 +7,7 @@ pub mod ffi;
 pub mod icc;
 mod integer_writer;
 pub mod metadata;
+mod metadata_store;
 
 pub use integer_writer::encode_u16_pixels;
 
