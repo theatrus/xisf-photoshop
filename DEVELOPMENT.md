@@ -221,6 +221,12 @@ Adobe 2026 v2 SDK. Successful builds provide these artifacts (GitHub login requi
 
 Actions artifacts are development snapshots and expire after 30 days; release
 downloads remain available. Run the workflow manually to rebuild development snapshots.
+For runner-capacity delays, a manual run can select `macos-15-intel` instead of
+`macos-15`; both build universal bundles. Set **release_tag** to an existing tag
+such as `v0.5.6` to rebuild its exact source using the current workflow. Every
+job records the checked-out source commit. For these runs, verify that recorded
+commit against the release tag, since the workflow run's `headSha` identifies
+the workflow's selected branch rather than the source tag.
 Native builds run the C++/Rust ABI test and load both compiled plugins in a
 minimal SDK host harness. The macOS runner tests its native architecture;
 `lipo` checks that both architectures are in each bundle. These tests do not

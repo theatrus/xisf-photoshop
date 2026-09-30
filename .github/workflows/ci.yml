@@ -6,6 +6,18 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      macos_runner:
+        description: macOS runner pool (both choices build universal plugins)
+        type: choice
+        default: macos-15
+        options:
+          - macos-15
+          - macos-15-intel
+      release_tag:
+        description: Existing release tag to rebuild (empty uses the selected branch)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -20,13 +32,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-15]
+        os: [windows-latest, "${{ inputs.macos_runner || 'macos-15' }}"]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+      - name: Record source commit
+        run: git rev-parse HEAD
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: '1.98.0'
@@ -53,7 +68,7 @@ jobs:
             retention-days: 1
           # macOS bundles leave this job ad-hoc signed; sign-macos publishes them.
           - platform: macOS-universal
-            os: macos-15
+            os: ${{ inputs.macos_runner || 'macos-15' }}
             sdk: mac
             artifact: Seiza-Photoshop-macOS-universal-unsigned
             retention-days: 1
@@ -63,6 +78,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+      - name: Record source commit
+        run: git rev-parse HEAD
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: '1.98.0'
@@ -126,6 +144,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+      - name: Record source commit
+        run: git rev-parse HEAD
       - name: Download unsigned plugins
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
@@ -224,12 +245,15 @@ jobs:
     if: github.event_name != 'pull_request' && github.repository == 'theatrus/xisf-photoshop'
     needs: plugins
     environment: signing
-    runs-on: macos-15
+    runs-on: ${{ inputs.macos_runner || 'macos-15' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+      - name: Record source commit
+        run: git rev-parse HEAD
       - name: Download unsigned bundles
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
