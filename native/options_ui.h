@@ -5,7 +5,7 @@
 #include <string>
 
 #ifdef _WIN32
-struct SeizaDialogData { const wchar_t* title; const wchar_t* message; uint32_t depth; bool* remember; uint32_t* debayer; uint32_t* removeAstrometry; };
+struct SeizaDialogData { const wchar_t* title; const wchar_t* message; uint32_t depth; bool* remember; uint32_t* debayer; uint32_t* removeAstrometry; uint32_t* compression; };
 inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_INITDIALOG) {
         const auto& data = *reinterpret_cast<SeizaDialogData*>(lparam);
@@ -21,6 +21,13 @@ inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wpara
         CheckDlgButton(window, SEIZA_REMOVE_ASTROMETRY, data.removeAstrometry && *data.removeAstrometry ? BST_CHECKED : BST_UNCHECKED);
         for (int control : {SEIZA_DEBAYER_LABEL, SEIZA_DEBAYER_CHOICE})
             ShowWindow(GetDlgItem(window, control), data.debayer ? SW_SHOW : SW_HIDE);
+        for (int control : {SEIZA_COMPRESSION_LABEL, SEIZA_COMPRESSION_CHOICE})
+            ShowWindow(GetDlgItem(window, control), data.compression ? SW_SHOW : SW_HIDE);
+        if (data.compression) {
+            for (const auto* label : {L"None", L"Zstandard (lossless)"})
+                SendDlgItemMessageW(window, SEIZA_COMPRESSION_CHOICE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+            SendDlgItemMessageW(window, SEIZA_COMPRESSION_CHOICE, CB_SETCURSEL, *data.compression, 0);
+        }
         if (data.debayer) {
             for (const auto* label : {L"Keep raw grayscale", L"Debayer to RGB - Auto (metadata)",
                 L"Debayer to RGB - RGGB", L"Debayer to RGB - BGGR", L"Debayer to RGB - GRBG", L"Debayer to RGB - GBRG"})
@@ -32,6 +39,7 @@ inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wpara
     if (message == WM_COMMAND) {
         if (LOWORD(wparam) == IDOK) {
             auto* data = reinterpret_cast<SeizaDialogData*>(GetWindowLongPtrW(window, DWLP_USER));
+            if (data->compression) *data->compression = static_cast<uint32_t>(SendDlgItemMessageW(window, SEIZA_COMPRESSION_CHOICE, CB_GETCURSEL, 0, 0));
             if (data->remember) *data->remember = IsDlgButtonChecked(window, SEIZA_REMEMBER_CHOICE) == BST_CHECKED;
             if (data->debayer) *data->debayer = static_cast<uint32_t>(SendDlgItemMessageW(window, SEIZA_DEBAYER_CHOICE, CB_GETCURSEL, 0, 0));
             if (data->removeAstrometry) *data->removeAstrometry = IsDlgButtonChecked(window, SEIZA_REMOVE_ASTROMETRY) == BST_CHECKED ? 1 : 0;
@@ -57,6 +65,9 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
         SendDlgItemMessageW(window, SEIZA_IMPORT_DEFAULT, CB_SETCURSEL, data->readDepth == 16 ? 1 : 0, 0);
         SendDlgItemMessageW(window, SEIZA_EXPORT_DEFAULT, CB_SETCURSEL,
             data->writeDepth == 16 ? 2 : data->writeDepth == 32 ? 1 : 0, 0);
+        for (const auto* label : {L"None", L"Zstandard (lossless)"})
+            SendDlgItemMessageW(window, SEIZA_COMPRESSION_DEFAULT, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+        SendDlgItemMessageW(window, SEIZA_COMPRESSION_DEFAULT, CB_SETCURSEL, data->xisfCompression, 0);
         CheckDlgButton(window, SEIZA_ASK_OPEN, data->askOnOpen ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, SEIZA_ASK_SAVE, data->askOnSave ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, SEIZA_DEBAYER_DEFAULT, data->debayer ? BST_CHECKED : BST_UNCHECKED);
@@ -66,6 +77,7 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
     if (message == WM_COMMAND) {
         if (LOWORD(wparam) == IDOK) {
             auto* data = reinterpret_cast<SeizaDefaults*>(GetWindowLongPtrW(window, DWLP_USER));
+            data->xisfCompression = static_cast<uint32_t>(SendDlgItemMessageW(window, SEIZA_COMPRESSION_DEFAULT, CB_GETCURSEL, 0, 0));
             data->readDepth = SendDlgItemMessageW(window, SEIZA_IMPORT_DEFAULT, CB_GETCURSEL, 0, 0) == 1 ? 16 : 32;
             const auto savedType = SendDlgItemMessageW(window, SEIZA_EXPORT_DEFAULT, CB_GETCURSEL, 0, 0);
             data->writeDepth = savedType == 2 ? 16 : savedType == 1 ? 32 : 0;
@@ -93,11 +105,11 @@ inline bool editDefaults(SeizaDefaults& defaults) {
 }
 #else
 bool editDefaults(SeizaDefaults& defaults);
-uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember, uint32_t* debayer, uint32_t* removeAstrometry);
+uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember, uint32_t* debayer, uint32_t* removeAstrometry, uint32_t* compression);
 #endif
 
 // Zero means Cancel. Call only from interactive read/options selectors.
-inline uint32_t chooseDepth(const char* title, const std::string& message, uint32_t initial, bool* remember = nullptr, uint32_t* debayer = nullptr, uint32_t* removeAstrometry = nullptr) {
+inline uint32_t chooseDepth(const char* title, const std::string& message, uint32_t initial, bool* remember = nullptr, uint32_t* debayer = nullptr, uint32_t* removeAstrometry = nullptr, uint32_t* compression = nullptr) {
     if (remember) *remember = false;
 #ifdef _WIN32
     HMODULE module = nullptr;
@@ -106,12 +118,12 @@ inline uint32_t chooseDepth(const char* title, const std::string& message, uint3
         throw std::runtime_error("Cannot locate the plugin options dialog");
     const std::wstring wideTitle(title, title + std::strlen(title));
     const std::wstring wideMessage(message.begin(), message.end());
-    SeizaDialogData data{wideTitle.c_str(), wideMessage.c_str(), initial, remember, debayer, removeAstrometry};
+    SeizaDialogData data{wideTitle.c_str(), wideMessage.c_str(), initial, remember, debayer, removeAstrometry, compression};
     const auto result = DialogBoxParamW(module, MAKEINTRESOURCEW(SEIZA_OPTIONS_DIALOG), GetActiveWindow(),
         seizaOptionsProc, reinterpret_cast<LPARAM>(&data));
     if (result == -1) throw std::runtime_error("Cannot display the plugin options dialog");
     return static_cast<uint32_t>(result);
 #else
-    return chooseDepthMac(title, message, initial, remember, debayer, removeAstrometry);
+    return chooseDepthMac(title, message, initial, remember, debayer, removeAstrometry, compression);
 #endif
 }

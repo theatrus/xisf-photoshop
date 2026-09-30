@@ -4,11 +4,12 @@
 // Versioned document options stored in a Photoshop-owned revertInfo handle.
 struct SeizaOptions {
     uint32_t magic = 0x535A4F50; // SZOP
-    uint32_t version = 4;
+    uint32_t version = 5;
     uint32_t readDepth = 32;
     uint32_t writeDepth = 0; // Zero follows the current Photoshop document depth.
     uint32_t debayer = 1; // 0=raw, 1=metadata, 2..5=manual RGGB/BGGR/GRBG/GBRG.
     uint32_t removeAstrometry = 2; // 0/1 are document choices; 2 follows current defaults.
+    uint32_t xisfCompression = 2; // 0=None, 1=Zstandard, 2=follows current defaults.
 };
 
 #define SEIZA_OPTIONS_DIALOG 17000
@@ -20,6 +21,9 @@ struct SeizaOptions {
 #define SEIZA_DEBAYER_CHOICE 17006
 #define SEIZA_REMOVE_ASTROMETRY 17007
 #define SEIZA_ASTROMETRY_HINT 17008
+#define SEIZA_COMPRESSION_LABEL 17009
+#define SEIZA_COMPRESSION_CHOICE 17010
+#define SEIZA_COMPRESSION_DEFAULT 17107
 #define SEIZA_SETTINGS_DIALOG 17100
 #define SEIZA_IMPORT_DEFAULT 17101
 #define SEIZA_EXPORT_DEFAULT 17102

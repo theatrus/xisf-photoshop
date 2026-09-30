@@ -724,6 +724,41 @@ pub fn encode_with_icc(
     profile: Option<&[u8]>,
     writer: impl Write,
 ) -> Result<()> {
+    encode_with_compression(
+        format,
+        depth,
+        width,
+        height,
+        planes,
+        pixels,
+        metadata,
+        profile,
+        XisfCompression::None,
+        writer,
+    )
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum XisfCompression {
+    #[default]
+    None,
+    Zstandard,
+}
+
+/// Compresses only the XISF pixel block; retained metadata blocks keep their encoding.
+#[allow(clippy::too_many_arguments)]
+pub fn encode_with_compression(
+    format: Format,
+    depth: u32,
+    width: usize,
+    height: usize,
+    planes: usize,
+    pixels: &[f32],
+    metadata: &Metadata,
+    profile: Option<&[u8]>,
+    compression: XisfCompression,
+    writer: impl Write,
+) -> Result<()> {
     encode_with_store(
         format,
         depth,
@@ -733,6 +768,7 @@ pub fn encode_with_icc(
         pixels,
         metadata,
         profile,
+        compression,
         writer,
         &Store::default(),
     )
@@ -748,9 +784,13 @@ fn encode_with_store(
     pixels: &[f32],
     metadata: &Metadata,
     profile: Option<&[u8]>,
+    compression: XisfCompression,
     mut writer: impl Write,
     store: &Store,
 ) -> Result<()> {
+    if format != Format::Xisf && compression != XisfCompression::None {
+        return Err("Zstandard output compression is only supported for XISF".into());
+    }
     if format == Format::Xisf
         && let Some(profile) = profile.filter(|p| !p.is_empty())
     {
@@ -789,6 +829,15 @@ fn encode_with_store(
             let pixels = base
                 .get(start..start + length)
                 .ok_or("Invalid encoded XISF pixels")?;
+            let compressed;
+            let pixels = match compression {
+                XisfCompression::None => pixels,
+                XisfCompression::Zstandard => {
+                    compressed = zstd::stream::encode_all(pixels, 3).map_err(|e| e.to_string())?;
+                    compressed.as_slice()
+                }
+            };
+            let stored_length = pixels.len();
             let mut root = if let Some(xml) = &metadata.xml {
                 parse(xml)?
             } else {
@@ -799,10 +848,18 @@ fn encode_with_store(
             // attributes were removed on import.
             img.remove("offset");
             img.remove("uuid");
+            // Never carry a source pixel block's codec, checksum, or subblock table
+            // onto newly encoded pixels, including metadata from older documents.
+            for attr in ["compression", "checksum", "subblocks"] {
+                img.remove(attr);
+            }
             if let Node::Element { attrs, .. } = image(&mut base_root)? {
                 for (k, v) in attrs {
                     img.set(k, v.clone());
                 }
+            }
+            if compression == XisfCompression::Zstandard {
+                img.set("compression", format!("zstd:{length}"));
             }
             if metadata.xml.is_none() {
                 for card in &metadata.cards {
@@ -876,9 +933,13 @@ fn encode_with_store(
             let mut data_start = 4096usize;
             let xml = loop {
                 let mut positioned = root.clone();
-                image(&mut positioned)?
-                    .set("location", format!("attachment:{data_start}:{length}"));
-                let mut end = data_start.checked_add(length).ok_or("XISF size overflow")?;
+                image(&mut positioned)?.set(
+                    "location",
+                    format!("attachment:{data_start}:{stored_length}"),
+                );
+                let mut end = data_start
+                    .checked_add(stored_length)
+                    .ok_or("XISF size overflow")?;
                 let offsets: Vec<_> = blocks
                     .iter()
                     .map(|b| -> Result<_> {
@@ -967,6 +1028,7 @@ mod large_metadata_tests {
             &[0.75],
             metadata,
             None,
+            XisfCompression::None,
             &mut out,
             store,
         );
@@ -1086,6 +1148,7 @@ mod large_metadata_tests {
             &[0.5, 0.75],
             &metadata,
             None,
+            XisfCompression::None,
             &mut cropped,
             &store,
         )

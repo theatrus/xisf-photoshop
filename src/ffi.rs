@@ -359,6 +359,55 @@ pub unsafe extern "C" fn seiza_encode_with_options(
     error: *mut c_char,
     capacity: usize,
 ) -> i32 {
+    unsafe {
+        seiza_encode_with_compression(
+            format,
+            depth,
+            width,
+            height,
+            planes,
+            pixels,
+            samples,
+            xmp,
+            xmp_length,
+            replace_icc,
+            icc,
+            icc_length,
+            remove_astrometry,
+            0,
+            callback,
+            context,
+            error,
+            capacity,
+        )
+    }
+}
+
+/// Encode with XISF pixel compression: 0 = None, 1 = Zstandard (lossless).
+/// FITS requires compression = 0. Other contracts follow seiza_encode_with_options.
+/// # Safety
+/// Buffer and callback contracts follow seiza_encode_with_profile.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn seiza_encode_with_compression(
+    format: u32,
+    depth: u32,
+    width: u32,
+    height: u32,
+    planes: u32,
+    pixels: *const f32,
+    samples: usize,
+    xmp: *const u8,
+    xmp_length: usize,
+    replace_icc: u32,
+    icc: *const u8,
+    icc_length: usize,
+    remove_astrometry: u32,
+    compression: u32,
+    callback: Option<WriteCallback>,
+    context: *mut c_void,
+    error: *mut c_char,
+    capacity: usize,
+) -> i32 {
     boundary(error, capacity, || {
         let count = crate::sample_count(width as usize, height as usize, planes as usize)?;
         if pixels.is_null()
@@ -386,7 +435,12 @@ pub unsafe extern "C" fn seiza_encode_with_options(
         } else {
             unsafe { slice::from_raw_parts(icc, icc_length) }
         };
-        crate::metadata::encode_with_icc(
+        let compression = match compression {
+            0 => crate::metadata::XisfCompression::None,
+            1 => crate::metadata::XisfCompression::Zstandard,
+            _ => return Err("Invalid XISF compression option".into()),
+        };
+        crate::metadata::encode_with_compression(
             Format::try_from(format)?,
             depth,
             width as usize,
@@ -395,6 +449,7 @@ pub unsafe extern "C" fn seiza_encode_with_options(
             unsafe { slice::from_raw_parts(pixels, samples) },
             &metadata,
             (replace_icc == 1).then_some(profile),
+            compression,
             CallbackWriter {
                 callback: callback.ok_or("Missing write callback")?,
                 context,

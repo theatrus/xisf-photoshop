@@ -243,7 +243,7 @@ static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, u
 static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
     uint32_t readDepth, uint32_t writeDepth, bool interactive = false, bool useDefaults = false,
     bool changeMode = false, uint32_t legacyOptions = 0, uint32_t cfaMode = UINT32_MAX, bool tagged = true,
-    uint32_t astrometry = 2) {
+    uint32_t astrometry = 2, uint32_t compression = 2, uint32_t defaultCompression = 0) {
 #ifdef _WIN32
     auto entry = reinterpret_cast<Entry>(GetProcAddress(module, "PluginMain"));
     require(FindResourceW(module, MAKEINTRESOURCEW(16000), L"PiPL") != nullptr, "PiPL resource missing");
@@ -344,12 +344,17 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         if (legacyOptions) {
             setOptions(writer, readDepth, legacyOptions == 1 ? 32 : writeDepth);
             reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->version = legacyOptions;
-            reinterpret_cast<TestHandle*>(writer.record.revertInfo)->bytes.resize(legacyOptions == 3 ? 20 : 16);
+            reinterpret_cast<TestHandle*>(writer.record.revertInfo)->bytes.resize(legacyOptions == 4 ? 24 : legacyOptions == 3 ? 20 : 16);
         }
         if (astrometry <= 1) reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->removeAstrometry = astrometry;
         if (astrometry == 3) { // Change defaults after opening the source document.
             auto defaults = readDefaults(); defaults.removeAstrometry = true; saveDefaults(defaults);
         }
+        if (compression <= 1)
+            reinterpret_cast<SeizaOptions*>(lockHandle(writer.record.revertInfo, false))->xisfCompression = compression;
+        auto compressionDefaults = readDefaults();
+        compressionDefaults.xisfCompression = defaultCompression;
+        saveDefaults(compressionDefaults);
         if (interactive || useDefaults) writer.descriptor.playInfo = plugInDialogDisplay;
         const auto documentDepth = changeMode ? (readDepth == 16 ? 32u : 16u) : readDepth;
         if (changeMode && documentDepth == 16) for (auto& value : expected)
@@ -374,6 +379,11 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
             "Saved sample type does not match the requested/document depth");
         require(header.find("metadata-document-A") != std::string::npos && header.find("EXPTIME") != std::string::npos,
             "Save As lost source metadata independently of revertInfo");
+        if (format == 2) {
+            const auto expectedCompression = compression == 2 ? defaultCompression : compression;
+            require((header.find("compression=\"zstd:") != std::string::npos) == (expectedCompression == 1),
+                "Save ignored the document compression choice or current default");
+        }
         const bool removeAstrometry = astrometry == 1 || astrometry == 3;
         require((header.find("CRPIX1") == std::string::npos) == removeAstrometry,
             "Save did not apply the astrometry choice to FITS coordinates");
@@ -439,15 +449,16 @@ static void checkDefaults() {
     auto saved = readDefaults();
     require(saved.readDepth == 16 && saved.writeDepth == 32 && saved.askOnOpen && !saved.askOnSave,
         "Preferences did not persist");
-    saveDefaults({32, 16, false, true, 1, true});
+    saveDefaults({32, 16, false, true, 1, true, 1});
     saved = readDefaults();
-    require(saved.readDepth == 32 && saved.writeDepth == 16 && !saved.askOnOpen && saved.askOnSave && saved.removeAstrometry,
+    require(saved.readDepth == 32 && saved.writeDepth == 16 && !saved.askOnOpen && saved.askOnSave && saved.removeAstrometry && saved.xisfCompression == 1,
         "Replacing preferences did not persist");
     bool rejected = false;
     try { saveDefaults({8, 16, false, false}); } catch (const std::exception&) { rejected = true; }
     require(rejected && readDefaults().writeDepth == 16, "Invalid preferences replaced valid preferences");
     for (const char* content : {"broken", "SEIZA_DEFAULTS_V1\n16 8 0 0\n", "SEIZA_DEFAULTS_V1\n16 16 3 0\n",
         "SEIZA_DEFAULTS_V3\n16 16 0 0\n", "SEIZA_DEFAULTS_V4\n16 16 0 0 1 2\n",
+        "SEIZA_DEFAULTS_V5\n16 16 0 0 1 0 2\n", "SEIZA_DEFAULTS_V5\n16 16 0 0 1 0\n",
         "SEIZA_DEFAULTS_V4\n16 16 0 0 1\n", "SEIZA_DEFAULTS_V1\n16 16 0 0\ntrailing"}) {
         { std::ofstream file(preferencesPath()); file << content; }
         const auto value = readDefaults();
@@ -462,10 +473,18 @@ static void checkDefaults() {
     saved = readDefaults();
     require(saved.readDepth == 16 && saved.debayer == 1 && !saved.removeAstrometry,
         "Legacy preferences must retain automatic astrometry cleanup");
-    saveDefaults({32, 16, true, true});
+    { std::ofstream file(preferencesPath()); file << "SEIZA_DEFAULTS_V4\n16 0 1 0 1 1\n"; }
+    saved = readDefaults();
+    require(saved.readDepth == 16 && saved.removeAstrometry && saved.xisfCompression == 0,
+        "V4 preferences must retain choices and default to uncompressed XISF");
+    bool badCompression = false;
+    try { auto invalid = saved; invalid.xisfCompression = 2; saveDefaults(invalid); }
+    catch (const std::exception&) { badCompression = true; }
+    require(badCompression && readDefaults().removeAstrometry, "Invalid compression replaced valid preferences");
+    saveDefaults({32, 16, true, true, 1, false, 1});
     rememberImportChoice(16);
     saved = readDefaults();
-    require(saved.readDepth == 16 && !saved.askOnOpen && saved.writeDepth == 16 && saved.askOnSave,
+    require(saved.readDepth == 16 && !saved.askOnOpen && saved.writeDepth == 16 && saved.askOnSave && saved.xisfCompression == 1,
         "Remember import choice must disable Open prompts without changing export settings");
     rememberImportChoice(16, 5);
     require(readDefaults().debayer == 1, "Manual Bayer patterns must remember Auto, not force a pattern globally");
@@ -478,6 +497,7 @@ static void checkDefaults() {
 int main(int argc, char** argv) {
     try {
         const bool interactive = argc == 2 && std::strcmp(argv[1], "--interactive") == 0;
+        const bool compressionTest = argc == 2 && std::strcmp(argv[1], "--compression") == 0;
         const bool debayerTest = argc == 2 && std::strcmp(argv[1], "--debayer") == 0;
         const bool rememberTest = argc == 2 && std::strcmp(argv[1], "--remember") == 0;
         const bool settings = argc == 2 && std::strcmp(argv[1], "--settings") == 0;
@@ -496,6 +516,7 @@ int main(int argc, char** argv) {
         std::filesystem::remove(testPath);
         checkDefaults();
         if (interactive) saveDefaults({32, 32, true, true});
+        if (compressionTest) saveDefaults({32, 0, false, true});
         for (uint32_t format : {1u, 2u}) {
 #ifdef _WIN32
             Module module = LoadLibraryW(format == 1 ? L"dist\\SeizaFITS.8bi" : L"dist\\SeizaXISF.8bi");
@@ -516,8 +537,12 @@ int main(int argc, char** argv) {
                 entry(formatSelectorAbout, nullptr, nullptr, &result);
                 require(result == noErr, "Settings dialog failed");
                 const auto saved = readDefaults();
-                std::printf("Settings after %s: read=%u write=%u askOpen=%d askSave=%d\n", format == 1 ? "FITS" : "XISF",
-                    saved.readDepth, saved.writeDepth, saved.askOnOpen, saved.askOnSave);
+                std::printf("Settings after %s: read=%u write=%u askOpen=%d askSave=%d compression=%u\n", format == 1 ? "FITS" : "XISF",
+                    saved.readDepth, saved.writeDepth, saved.askOnOpen, saved.askOnSave, saved.xisfCompression);
+            }
+            else if (compressionTest) {
+                std::puts("Choose 32-bit on Save; XISF should show Zstandard and FITS no compression control.");
+                run(module, format, 3, 2, 3, 32, 0, true, false, false, 0, UINT32_MAX, true, 2, 1);
             }
             else if (debayerTest) {
                 saveDefaults({});
@@ -547,6 +572,23 @@ int main(int argc, char** argv) {
                     run(module, format, 5, 3, 1, readDepth, 0, false, true, false, false, 1);
                     saveDefaults({});
                 }
+                for (uint32_t compression : {0u, 1u, 2u}) {
+                    for (uint32_t planes : {1u, 3u}) {
+                        // Explicit choices win over a conflicting global default.
+                        run(module, format, 3, 2, planes, readDepth, writeDepth, false, false,
+                            false, 0, UINT32_MAX, true, 2, compression, compression == 1 ? 0 : 1);
+                        saveDefaults({});
+                    }
+                }
+                // Photoshop can skip the options selector; defaults must still apply.
+                saveDefaults({readDepth, writeDepth, false, false});
+                run(module, format, 3, 2, 3, readDepth, writeDepth, false, true,
+                    false, 0, UINT32_MAX, true, 2, 2, 1);
+                saveDefaults({});
+                // Existing documents adopt the configured compression when migrating.
+                run(module, format, 3, 2, 3, readDepth, writeDepth, false, false,
+                    false, 4, UINT32_MAX, true, 2, 2, 1);
+                saveDefaults({});
                 run(module, format, 1, 1, 1, readDepth, writeDepth);
                 run(module, format, 4, 1, 1, readDepth, writeDepth);
                 run(module, format, 5, 1, 1, readDepth, writeDepth);
@@ -577,6 +619,6 @@ int main(int argc, char** argv) {
 #endif
         }
         std::filesystem::remove(testPath);
-        std::puts("Adobe SDK host harness passed: CFA raw/auto/manual, RGB rescaling and revert, matching document depth, mode changes, legacy migration, saved defaults, quiet import/export, skipped save options, revert, 16/32-bit pixels, rescaling, cancellation and invalid inputs.");
+        std::puts("Adobe SDK host harness passed: CFA raw/auto/manual, RGB rescaling and revert, XISF Zstandard/defaults/overrides, matching document depth, mode changes, legacy migration, saved defaults, quiet import/export, skipped save options, revert, 16/32-bit pixels, rescaling, cancellation and invalid inputs.");
     } catch (const std::exception& e) { std::fprintf(stderr, "%s\n", e.what()); return 1; }
 }

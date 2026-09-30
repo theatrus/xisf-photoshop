@@ -1,7 +1,7 @@
 #import <AppKit/AppKit.h>
 #include "preferences.h"
 
-uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember, uint32_t* debayer, uint32_t* removeAstrometry) {
+uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t initial, bool* remember, uint32_t* debayer, uint32_t* removeAstrometry, uint32_t* compression) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         NSAlert* alert = [[NSAlert alloc] init];
@@ -26,6 +26,22 @@ uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t 
             astrometry.toolTip = @"Use after geometric edits, then re-solve the saved image.";
             alert.accessoryView = astrometry;
         }
+        NSPopUpButton* compressionMenu = nil;
+        if (compression) {
+            NSView* saveView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 340, 66)];
+            if (astrometry) {
+                astrometry.frame = NSMakeRect(0, 40, 340, 24);
+                [saveView addSubview:astrometry];
+            }
+            NSTextField* label = [NSTextField labelWithString:@"XISF compression"];
+            label.frame = NSMakeRect(0, 4, 135, 22);
+            [saveView addSubview:label];
+            compressionMenu = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(140, 2, 200, 26) pullsDown:NO];
+            [compressionMenu addItemsWithTitles:@[@"None", @"Zstandard (lossless)"]];
+            [compressionMenu selectItemAtIndex:*compression];
+            [saveView addSubview:compressionMenu];
+            alert.accessoryView = saveView;
+        }
         if (remember) {
             *remember = false;
             alert.showsSuppressionButton = YES;
@@ -36,6 +52,7 @@ uint32_t chooseDepthMac(const char* title, const std::string& message, uint32_t 
         if (response != NSAlertFirstButtonReturn && response != NSAlertSecondButtonReturn) return 0;
         if (remember) *remember = alert.suppressionButton.state == NSControlStateValueOn;
         if (debayer) *debayer = static_cast<uint32_t>(cfa.indexOfSelectedItem);
+        if (compression) *compression = static_cast<uint32_t>(compressionMenu.indexOfSelectedItem);
         if (removeAstrometry) *removeAstrometry = astrometry.state == NSControlStateValueOn ? 1 : 0;
         return response == NSAlertFirstButtonReturn ? initial : initial == 16 ? 32 : 16;
     }
@@ -52,7 +69,7 @@ bool editDefaults(SeizaDefaults& defaults) {
             @"Match document depth follows the current Photoshop 16/32-bit mode.";
         [alert addButtonWithTitle:@"Save defaults"];
         [alert addButtonWithTitle:@"Cancel"];
-        NSView* view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 440, 225)];
+        NSView* view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 440, 265)];
         NSButton* cfa = [NSButton checkboxWithTitle:@"Debayer tagged images to RGB (bilinear)" target:nil action:nil];
         cfa.frame = NSMakeRect(0, 148, 440, 22);
         cfa.state = defaults.debayer ? NSControlStateValueOn : NSControlStateValueOff;
@@ -93,8 +110,21 @@ bool editDefaults(SeizaDefaults& defaults) {
         astrometryHint.font = [NSFont systemFontOfSize:11];
         astrometryHint.frame = NSMakeRect(0, 3, 440, 20);
         [view addSubview:astrometryHint];
+        for (NSView* control in view.subviews) {
+            NSRect frame = control.frame;
+            frame.origin.y += 40;
+            control.frame = frame;
+        }
+        NSTextField* compressionLabel = [NSTextField labelWithString:@"Default XISF compression"];
+        compressionLabel.frame = NSMakeRect(0, 5, 195, 22);
+        [view addSubview:compressionLabel];
+        NSPopUpButton* compressionMenu = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(200, 3, 240, 26) pullsDown:NO];
+        [compressionMenu addItemsWithTitles:@[@"None", @"Zstandard (lossless)"]];
+        [compressionMenu selectItemAtIndex:defaults.xisfCompression];
+        [view addSubview:compressionMenu];
         alert.accessoryView = view;
         if ([alert runModal] != NSAlertFirstButtonReturn) return false;
+        defaults.xisfCompression = static_cast<uint32_t>(compressionMenu.indexOfSelectedItem);
         defaults.readDepth = read.indexOfSelectedItem == 1 ? 16 : 32;
         defaults.writeDepth = write.indexOfSelectedItem == 2 ? 16 : write.indexOfSelectedItem == 1 ? 32 : 0;
         defaults.askOnOpen = askOpen.state == NSControlStateValueOn;

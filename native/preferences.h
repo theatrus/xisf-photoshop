@@ -18,6 +18,7 @@ struct SeizaDefaults {
     bool askOnSave = false;
     uint32_t debayer = 1; // Auto for recognized metadata. Never remember a forced pattern globally.
     bool removeAstrometry = false;
+    uint32_t xisfCompression = 0; // 0=None, 1=Zstandard; ignored for FITS.
 };
 
 inline std::filesystem::path preferencesPath() {
@@ -51,23 +52,24 @@ inline SeizaDefaults readDefaults() noexcept {
         std::string signature, trailing;
         unsigned read = 0, write = 0, askOpen = 0, askSave = 0;
         unsigned debayer = 0; // Preserve raw imports when migrating older preferences.
-        unsigned removeAstrometry = 0;
+        unsigned removeAstrometry = 0, compression = 0;
         if (!(input >> signature >> read >> write >> askOpen >> askSave)) return {};
-        if ((signature == "SEIZA_DEFAULTS_V3" || signature == "SEIZA_DEFAULTS_V4") && !(input >> debayer)) return {};
-        if (signature == "SEIZA_DEFAULTS_V4" && !(input >> removeAstrometry)) return {};
-        if ((signature == "SEIZA_DEFAULTS_V1" || signature == "SEIZA_DEFAULTS_V2" || signature == "SEIZA_DEFAULTS_V3" || signature == "SEIZA_DEFAULTS_V4") &&
+        if ((signature == "SEIZA_DEFAULTS_V3" || signature == "SEIZA_DEFAULTS_V4" || signature == "SEIZA_DEFAULTS_V5") && !(input >> debayer)) return {};
+        if ((signature == "SEIZA_DEFAULTS_V4" || signature == "SEIZA_DEFAULTS_V5") && !(input >> removeAstrometry)) return {};
+        if (signature == "SEIZA_DEFAULTS_V5" && !(input >> compression)) return {};
+        if ((signature == "SEIZA_DEFAULTS_V1" || signature == "SEIZA_DEFAULTS_V2" || signature == "SEIZA_DEFAULTS_V3" || signature == "SEIZA_DEFAULTS_V4" || signature == "SEIZA_DEFAULTS_V5") &&
             (read == 16 || read == 32) && (write == 16 || write == 32 ||
             (write == 0 && signature != "SEIZA_DEFAULTS_V1")) &&
-            askOpen <= 1 && askSave <= 1 && debayer <= 1 && removeAstrometry <= 1 && !(input >> trailing))
+            askOpen <= 1 && askSave <= 1 && debayer <= 1 && removeAstrometry <= 1 && compression <= 1 && !(input >> trailing))
             // Old settings seeded a fixed save depth even without an explicit choice.
-            return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0, debayer, removeAstrometry != 0};
+            return {read, signature == "SEIZA_DEFAULTS_V1" ? 0u : write, askOpen != 0, askSave != 0, debayer, removeAstrometry != 0, compression};
     } catch (...) { /* Missing/unreadable/corrupt preferences use factory defaults. */ }
     return {};
 }
 
 inline void saveDefaults(const SeizaDefaults& defaults) {
     if ((defaults.readDepth != 16 && defaults.readDepth != 32) ||
-        (defaults.writeDepth != 0 && defaults.writeDepth != 16 && defaults.writeDepth != 32) || defaults.debayer > 1)
+        (defaults.writeDepth != 0 && defaults.writeDepth != 16 && defaults.writeDepth != 32) || defaults.debayer > 1 || defaults.xisfCompression > 1)
         throw std::runtime_error("Invalid Seiza default sample type");
     const auto path = preferencesPath();
     if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path());
@@ -83,9 +85,9 @@ inline void saveDefaults(const SeizaDefaults& defaults) {
     try {
         {
             std::ofstream output(temporary, std::ios::trunc);
-            output << "SEIZA_DEFAULTS_V4\n" << defaults.readDepth << ' ' << defaults.writeDepth
+            output << "SEIZA_DEFAULTS_V5\n" << defaults.readDepth << ' ' << defaults.writeDepth
                    << ' ' << defaults.askOnOpen << ' ' << defaults.askOnSave << ' ' << defaults.debayer
-                   << ' ' << defaults.removeAstrometry << '\n';
+                   << ' ' << defaults.removeAstrometry << ' ' << defaults.xisfCompression << '\n';
             output.flush();
             if (!output) throw std::runtime_error("Cannot write Seiza preferences");
             output.close();

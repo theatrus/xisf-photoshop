@@ -8,13 +8,13 @@ and retain source metadata when saving in the same format.
 
 Both FITS and XISF plugins are included in every download.
 
-| Platform | Download v0.5.6 | Installation |
+| Platform | Download v0.5.7 | Installation |
 | --- | --- | --- |
-| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.6/Seiza-Photoshop-Windows-x64-Setup-0.5.6.exe) | [Windows instructions](#optional-windows-installer) |
-| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.6/Seiza-Photoshop-macOS-universal-0.5.6.dmg) | [macOS instructions](#macos-installation-dmg) |
+| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-Windows-x64-Setup-0.5.7.exe) | [Windows instructions](#optional-windows-installer) |
+| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-macOS-universal-0.5.7.dmg) | [macOS instructions](#macos-installation-dmg) |
 
-For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.6/Seiza-Photoshop-Windows-x64.zip)
-and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.6/Seiza-Photoshop-macOS-universal.zip)
+For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-Windows-x64.zip)
+and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-macOS-universal.zip)
 downloads are also available. See [all releases](https://github.com/theatrus/xisf-photoshop/releases).
 
 ### Optional Windows installer
@@ -96,6 +96,7 @@ same settings, even without an image open.
 | Import depth | 32-bit float |
 | Debayer tagged images to RGB | Enabled; uses recognized Bayer metadata |
 | Saved sample type | Match document depth |
+| Default XISF compression | None |
 | Ask on every Open | Enabled |
 | Ask on every Save / Save As | Disabled |
 | Remove astrometric solution on save | Disabled; dimension changes still remove the solution automatically |
@@ -111,6 +112,15 @@ Settings persist across restarts and updates. Existing documents retain their
 import and save choices; to override a document's saved type, enable
 **Ask on every Save / Save As** and use Save As. One-off save choices do not
 change global defaults. Revert reuses the document's import choice.
+
+For smaller XISF files, set **Default XISF compression** to **Zstandard (lossless)**.
+Saves use this setting without an extra prompt. To choose compression for one
+document, enable **Ask on every Save / Save As** and select **None** or
+**Zstandard (lossless)** in the XISF save options. That choice stays with the
+document; documents without an explicit choice follow the current default.
+Compression preserves the saved UInt16 or Float32 samples exactly and does not
+change the selected sample depth. File size savings depend on the image.
+The compression setting applies only to XISF; FITS output remains uncompressed.
 
 ## Bayer / CFA import
 
@@ -200,7 +210,8 @@ behavior. FITS does not carry an ICC profile through these plugins.
   are not loaded as layers or copied on save.
 - Output is one flattened grayscale or RGB image. Layers, alpha channels, and
   masks are not retained; use PSD/PSB for your Photoshop editing document.
-- XISF output is uncompressed. Compressed XISF input supports zlib, LZ4/LZ4HC,
+- XISF output supports uncompressed or lossless Zstandard pixels. Compressed
+  XISF input supports zlib, LZ4/LZ4HC,
   zstd, and byte shuffling.
 - XISF input supports planar and interleaved pixels, unsigned 8/16/32/64-bit
   integers, and 32/64-bit floats. CIELab images are converted to RGB using the
