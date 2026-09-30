@@ -1,5 +1,5 @@
 //! Host-independent astronomy codecs. Photoshop sees planar linear f32 pixels.
-//! Float samples retain physical values; unsigned 8/16-bit camera samples use
+//! Float samples retain physical values; unsigned integer camera samples use
 //! their fixed full-scale range. There is no histogram normalization or stretch.
 
 pub mod debayer;
@@ -71,15 +71,35 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
     if !format.recognizes(bytes) {
         return Err("File signature does not match the selected format".into());
     }
-    let (image, xisf_u32) = match format {
+    let (image, xisf_integer_scale) = match format {
         Format::Fits => (
             FitsImage::from_bytes(bytes).map_err(|e| e.to_string())?,
-            false,
+            None,
         ),
         Format::Xisf => {
-            let decoded = seiza_xisf::read_image_from_bytes(bytes, 0).map_err(|e| e.to_string())?;
-            let u32_samples = decoded.info.sample_format == seiza_xisf::SampleFormat::UInt32;
-            (decoded.image, u32_samples)
+            // Our metadata store retains large attachments without loading a
+            // second copy through the upstream metadata reader.
+            let image = seiza_xisf::image_from_bytes(bytes, 0).map_err(|e| e.to_string())?;
+            // BITPIX may be a stale source FITS keyword. Use the actual XISF
+            // sampleFormat, especially since UInt32/UInt64 both decode as F64.
+            let length = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+            let xml = std::str::from_utf8(&bytes[16..16 + length]).map_err(|e| e.to_string())?;
+            let doc = roxmltree::Document::parse(xml.trim_end_matches('\0'))
+                .map_err(|e| e.to_string())?;
+            let sample_format = doc
+                .root_element()
+                .children()
+                .find(|n| n.has_tag_name("Image"))
+                .and_then(|n| n.attribute("sampleFormat"))
+                .map(str::trim);
+            let scale = match sample_format {
+                Some("UInt8") => Some(u8::MAX as f32),
+                Some("UInt16") => Some(u16::MAX as f32),
+                Some("UInt32") => Some(u32::MAX as f32),
+                Some("UInt64") => Some(u64::MAX as f32),
+                _ => None,
+            };
+            (image, scale)
         }
     };
     // Seiza can read the first planes of larger FITS cubes. Do not silently
@@ -101,7 +121,7 @@ pub fn decode(format: Format, bytes: &[u8]) -> Result<Image> {
         && matches!(&image.pixels, Pixels::U16(_))
         && (bzero != 32768.0 || bscale != 1.0);
     let divisor = match &image.pixels {
-        _ if xisf_u32 => u32::MAX as f32,
+        _ if xisf_integer_scale.is_some() => xisf_integer_scale.unwrap(),
         Pixels::U8(_) if bzero == 0.0 && bscale == 1.0 => 255.0,
         Pixels::U16(_) if !signed_fits16 => 65535.0,
         _ => 1.0,

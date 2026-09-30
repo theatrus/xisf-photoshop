@@ -202,6 +202,10 @@ behavior. FITS does not carry an ICC profile through these plugins.
   masks are not retained; use PSD/PSB for your Photoshop editing document.
 - XISF output is uncompressed. Compressed XISF input supports zlib, LZ4/LZ4HC,
   zstd, and byte shuffling.
+- XISF input supports planar and interleaved pixels, unsigned 8/16/32/64-bit
+  integers, and 32/64-bit floats. CIELab images are converted to RGB using the
+  file's RGB working space, or sRGB when none is specified. Complex samples
+  are unsupported.
 - ICC profiles are limited to 16 MiB. Invalid profile headers, tag offsets, or
   checksums produce an error.
 - Higher-precision input can lose precision when converted to 32-bit float.

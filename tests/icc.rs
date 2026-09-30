@@ -124,6 +124,20 @@ fn compressed_profiles_verify_checksums_and_unshuffle() {
     }
     for (name, digest) in [
         (
+            "sha3-256",
+            sha3::Sha3_256::digest(&data)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+        ),
+        (
+            "sha3-512",
+            sha3::Sha3_512::digest(&data)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+        ),
+        (
             "sha-1",
             sha1::Sha1::digest(&data)
                 .iter()
@@ -148,6 +162,19 @@ fn compressed_profiles_verify_checksums_and_unshuffle() {
             )
             .unwrap(),
             data
+        );
+        let mut corrupted = data.clone();
+        corrupted[80] ^= 1;
+        assert!(
+            extract(
+                &format!(
+                    r#"<ICCProfile location="attachment:8192:160" checksum="{name}:{digest}"/>"#
+                ),
+                &corrupted,
+                3
+            )
+            .unwrap_err()
+            .contains("checksum")
         );
     }
 }

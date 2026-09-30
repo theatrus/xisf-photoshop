@@ -151,6 +151,8 @@ pub(crate) fn decode(xml: &str, blocks: &[String]) -> Result<Vec<u8>> {
             "sha1" | "sha-1" => sha1::Sha1::digest(&stored).to_vec(),
             "sha256" | "sha-256" => sha2::Sha256::digest(&stored).to_vec(),
             "sha512" | "sha-512" => sha2::Sha512::digest(&stored).to_vec(),
+            "sha3-256" => sha3::Sha3_256::digest(&stored).to_vec(),
+            "sha3-512" => sha3::Sha3_512::digest(&stored).to_vec(),
             _ => return Err("Unsupported ICC checksum algorithm".into()),
         };
         if actual != hex(expected)? {

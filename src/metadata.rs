@@ -58,7 +58,7 @@ impl Node {
     }
     fn name(&self) -> &str {
         match self {
-            Self::Element { name, .. } => name,
+            Self::Element { name, .. } => name.rsplit(':').next().unwrap_or(name),
             _ => "",
         }
     }
@@ -217,6 +217,53 @@ fn image(root: &mut Node) -> Result<&mut Node> {
         .iter_mut()
         .find(|n| n.name() == "Image")
         .ok_or_else(|| "Missing XISF image metadata".into())
+}
+
+// References can point into another image, which we intentionally don't retain.
+// Resolve the first image's references before discarding those other images so
+// ICC profiles, working spaces, keywords, and binary properties remain usable.
+fn resolve_image_references(root: &mut Node) -> Result<()> {
+    fn collect<'a>(node: &'a Node, shared: &mut HashMap<String, &'a Node>) {
+        if node.name() != "Reference"
+            && let Some(uid) = node.attr("uid")
+        {
+            shared.entry(uid.trim().to_owned()).or_insert(node);
+        }
+        if let Node::Element { children, .. } = node {
+            for child in children {
+                collect(child, shared);
+            }
+        }
+    }
+    let mut shared = HashMap::new();
+    collect(root, &mut shared);
+    let Node::Element { children, .. } = &*root else {
+        unreachable!()
+    };
+    let Some(Node::Element { children, .. }) = children.iter().find(|n| n.name() == "Image") else {
+        return Err("Missing XISF image metadata".into());
+    };
+    let mut replacements = Vec::new();
+    let mut remaining = LIMIT;
+    for (index, node) in children
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.name() == "Reference")
+    {
+        let target = shared
+            .get(node.attr("ref").unwrap_or("").trim())
+            .ok_or("Undefined XISF metadata reference")?;
+        remaining = remaining
+            .checked_sub(target.xml().len())
+            .ok_or("Expanded XISF metadata exceeds 64 MiB")?;
+        let mut target = (*target).clone();
+        target.remove("uid");
+        replacements.push((index, target));
+    }
+    for (index, target) in replacements {
+        image(root)?.children()[index] = target;
+    }
+    Ok(())
 }
 fn keyword(card: &str) -> &str {
     card.get(..8).unwrap_or(card).trim()
@@ -418,6 +465,7 @@ impl Metadata {
                 if root.name() != "xisf" {
                     return Err("Invalid XISF metadata root".into());
                 }
+                resolve_image_references(&mut root)?;
                 let mut first = true;
                 root.children().retain(|n| {
                     if n.name() == "Image" {
@@ -441,6 +489,8 @@ impl Metadata {
                     "sampleFormat",
                     "geometry",
                     "colorSpace",
+                    "offset",
+                    "uuid",
                 ] {
                     img.remove(key);
                 }
@@ -745,6 +795,10 @@ fn encode_with_store(
                 base_root.clone()
             };
             let img = image(&mut root)?;
+            // Also clean older PSD/PSB metadata captured before these source-only
+            // attributes were removed on import.
+            img.remove("offset");
+            img.remove("uuid");
             if let Node::Element { attrs, .. } = image(&mut base_root)? {
                 for (k, v) in attrs {
                     img.set(k, v.clone());
