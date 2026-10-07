@@ -205,21 +205,16 @@ uint32_t importDepth(FormatRecord& r, State& state) {
     bool remember = false;
     if (!reverting && defaults.askOnOpen && !silent(r)) {
         std::ostringstream text;
-        text << "Choose the Photoshop document depth.\n\n"
-             << "32-bit float preserves the decoded values, including negative and HDR values. "
-             << "Float32 has up to 24 bits of significant precision.\n\n"
-             << "16-bit integer enables Photoshop's normal 16-bit tools, but its internal range is "
-             << "0..32768 (about 15 bits plus an endpoint). The image minimum and maximum are rescaled "
-             << "to this range, using one shared scale for all channels. No samples are clipped. "
-             << "Rounding loses precision, and the original absolute scale is not retained on save.\n\n"
+        text << "32-bit: Keep original values, including negative and HDR values.\n\n"
+             << "16-bit: Rescale without clipping. Lose precision and original scale.\n\n"
              << "Source range: " << state.minimum << " to " << state.maximum << ".";
-        if (state.minimum == state.maximum) text << " This constant image will become zero (black).";
+        if (state.minimum == state.maximum) text << " 16-bit import makes this constant image black.";
         if (singleChannel) {
             static const char* patterns[] = {"No Bayer metadata", "RGGB", "BGGR", "GRBG", "GBRG", "Unsupported Bayer metadata"};
-            text << "\n\nCFA: " << patterns[std::min(view.cfa_pattern, 5u)] << ". Offsets: "
-                 << view.cfa_x_offset << ", " << view.cfa_y_offset << ". Debayer uses bilinear interpolation before rescaling.";
-            text << " Remember choice saves Raw or Auto globally; manual patterns stay with this document.";
-            if (view.cfa_invalid_offsets) text << " Invalid offsets: open raw or correct the source headers.";
+            text << "\n\nBayer pattern: " << patterns[std::min(view.cfa_pattern, 5u)] << ". Offset: "
+                 << view.cfa_x_offset << ", " << view.cfa_y_offset << ".";
+            text << "\nRemembering a manual pattern sets Auto as the default.";
+            if (view.cfa_invalid_offsets) text << "\nInvalid offsets: keep raw or fix the source headers.";
         }
         options.readDepth = chooseDepth("FITS / XISF - Open image", text.str(), options.readDepth, &remember,
             singleChannel ? &options.debayer : nullptr);
@@ -250,14 +245,8 @@ void writeOptions(FormatRecord& r) {
     loadOptions(r, options);
     if (defaults.askOnSave && !silent(r)) {
         const std::string text =
-            "Choose the sample format stored in the FITS/XISF file.\n\n"
-            "32-bit float preserves the current document's sample values. Saving a 16-bit document "
-            "as Float32 cannot recover precision already lost on import.\n\n"
-            "16-bit integer rounds normalized 0..1 values to 0..65535. Negative values become 0 "
-            "and values above 1 become 65535. Float32's 24-bit significant precision and HDR range "
-            "are lost. No stretch or automatic rescaling is applied.\n\n"
-            "Photoshop 16-bit documents already have about 15 bits plus an endpoint of precision. "
-            "Choose 32-bit float to avoid further quantization.";
+            "32-bit: Keep current document values. Lost precision cannot be restored.\n\n"
+            "16-bit: Reduce precision and clip values outside 0..1. No rescaling.";
         uint32_t removeAstrometry = options.removeAstrometry == 2 ? defaults.removeAstrometry : options.removeAstrometry;
         uint32_t compression = options.xisfCompression == 2 ? defaults.xisfCompression : options.xisfCompression;
         options.writeDepth = chooseDepth("FITS / XISF - Save image", text,
@@ -511,11 +500,11 @@ SEIZA_EXPORT void MACPASCAL PluginMain(
         } catch (...) {
             *result = formatBadParameters;
 #ifdef _WIN32
-            MessageBoxW(GetActiveWindow(), L"Could not save Seiza defaults. Check that your application preferences folder is writable.",
-                L"Seiza settings", MB_OK | MB_ICONERROR);
+            MessageBoxW(GetActiveWindow(), L"Could not save defaults. Check write access to your preferences folder.",
+                L"FITS / XISF settings", MB_OK | MB_ICONERROR);
 #else
             CFUserNotificationDisplayNotice(0, kCFUserNotificationStopAlertLevel, nullptr, nullptr, nullptr,
-                CFSTR("Seiza settings"), CFSTR("Could not save Seiza defaults. Check that your application preferences folder is writable."), CFSTR("OK"));
+                CFSTR("FITS / XISF settings"), CFSTR("Could not save defaults. Check write access to your preferences folder."), CFSTR("OK"));
 #endif
         }
         return;

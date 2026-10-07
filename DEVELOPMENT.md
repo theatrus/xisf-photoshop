@@ -172,7 +172,7 @@ Generate known test images:
 cargo run --locked --example make_fixtures
 ```
 
-1. Configure import defaults in About Plug-In (or enable **Ask on every Open**).
+1. Configure import defaults in About Plug-In (or enable **Ask on every open**).
    Open all four images in `build/fixtures`. Try both import depths and verify
    128×96 dimensions and grayscale/RGB channels. Mono is a left-to-right ramp. RGB has red increasing
    left-to-right, green increasing top-to-bottom, and blue only in the upper-left.

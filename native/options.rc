@@ -8,45 +8,44 @@
 #define SEIZA_DEBAYER_CHOICE 17006
 #define SEIZA_REMOVE_ASTROMETRY 17007
 
-SEIZA_OPTIONS_DIALOG DIALOGEX 0, 0, 340, 320
+SEIZA_OPTIONS_DIALOG DIALOGEX 0, 0, 340, 260
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Seiza Astronomy Formats"
+CAPTION "FITS / XISF"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT "", SEIZA_OPTIONS_TEXT, 12, 12, 316, 160
-    AUTORADIOBUTTON "32-bit floating point", SEIZA_FLOAT_CHOICE, 12, 178, 305, 12, WS_GROUP | WS_TABSTOP
-    AUTORADIOBUTTON "16-bit integer", SEIZA_INTEGER_CHOICE, 12, 196, 305, 12
-    LTEXT "Color filter array", SEIZA_DEBAYER_LABEL, 12, 216, 100, 12
-    COMBOBOX SEIZA_DEBAYER_CHOICE, 12, 230, 316, 95, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    AUTOCHECKBOX "Remember choice", SEIZA_REMEMBER_CHOICE, 12, 250, 180, 12
-    AUTOCHECKBOX "Remove astrometric solution", SEIZA_REMOVE_ASTROMETRY, 12, 216, 316, 12
-    LTEXT "Use after geometric edits, then re-solve the saved image.", 17008, 12, 232, 316, 14
-    LTEXT "XISF compression", 17009, 12, 272, 110, 12
-    COMBOBOX 17010, 130, 269, 198, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON "OK", IDOK, 214, 298, 54, 14
-    PUSHBUTTON "Cancel", IDCANCEL, 274, 298, 54, 14
+    LTEXT "", SEIZA_OPTIONS_TEXT, 12, 12, 316, 100
+    AUTORADIOBUTTON "32-bit float", SEIZA_FLOAT_CHOICE, 12, 118, 305, 12, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "16-bit integer", SEIZA_INTEGER_CHOICE, 12, 136, 305, 12
+    LTEXT "Debayer", SEIZA_DEBAYER_LABEL, 12, 156, 100, 12
+    COMBOBOX SEIZA_DEBAYER_CHOICE, 12, 170, 316, 95, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX "Remember choice", SEIZA_REMEMBER_CHOICE, 12, 190, 180, 12
+    AUTOCHECKBOX "Remove astrometric solution", SEIZA_REMOVE_ASTROMETRY, 12, 156, 316, 12
+    LTEXT "Use after geometric edits. Re-solve after saving.", 17008, 12, 172, 316, 14
+    LTEXT "XISF compression", 17009, 12, 212, 110, 12
+    COMBOBOX 17010, 130, 209, 198, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON "OK", IDOK, 214, 238, 54, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 274, 238, 54, 14
 END
 
-17100 DIALOGEX 0, 0, 360, 326
+17100 DIALOGEX 0, 0, 360, 284
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "FITS / XISF - Default settings"
 FONT 9, "Segoe UI"
 BEGIN
-    LTEXT "Seiza Astronomy Formats 0.5.7 - shared by FITS and XISF", -1, 12, 10, 336, 14
-    LTEXT "Default import depth", -1, 12, 34, 120, 12
+    LTEXT "Defaults for FITS and XISF", -1, 12, 10, 336, 14
+    LTEXT "Open as", -1, 12, 34, 120, 12
     COMBOBOX 17101, 142, 31, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    AUTOCHECKBOX "Ask on every Open", 17103, 142, 54, 200, 12
-    AUTOCHECKBOX "Debayer tagged images to RGB (bilinear)", 17105, 12, 76, 336, 12
-    LTEXT "Default saved sample type", -1, 12, 102, 126, 12
+    AUTOCHECKBOX "Ask on every open", 17103, 142, 54, 200, 12
+    AUTOCHECKBOX "Debayer tagged images to RGB", 17105, 12, 76, 336, 12
+    LTEXT "Save as", -1, 12, 102, 126, 12
     COMBOBOX 17102, 142, 99, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    AUTOCHECKBOX "Ask on every Save / Save As", 17104, 142, 122, 200, 12
-    LTEXT "16-bit import rescales the full image range without clipping. Photoshop retains about 15 bits plus an endpoint; precision and original absolute scale are lost.", -1, 12, 146, 336, 32
-    LTEXT "UInt16 export rounds 0..1 to 0..65535 and clips negative/HDR values. Float32 preserves current document values but cannot recover lost import precision.", -1, 12, 183, 336, 32
-    LTEXT "Match document depth follows the current Photoshop 16/32-bit mode.", -1, 12, 223, 336, 12
-    AUTOCHECKBOX "Remove astrometric solution on save", 17106, 12, 242, 336, 12
-    LTEXT "For geometric edits; re-solve the saved image in your astronomy software.", -1, 12, 258, 336, 12
-    LTEXT "Default XISF compression", -1, 12, 281, 126, 12
-    COMBOBOX 17107, 142, 278, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON "Save defaults", IDOK, 194, 306, 78, 14
-    PUSHBUTTON "Cancel", IDCANCEL, 280, 306, 68, 14
+    AUTOCHECKBOX "Ask on every save", 17104, 142, 122, 200, 12
+    LTEXT "Open in 16-bit: Rescale without clipping. Lose precision and original scale.", -1, 12, 146, 336, 24
+    LTEXT "Save in 16-bit: Reduce precision and clip values outside 0..1.", -1, 12, 174, 336, 14
+    AUTOCHECKBOX "Remove astrometric solution on save", 17106, 12, 200, 336, 12
+    LTEXT "Use after geometric edits. Re-solve after saving.", -1, 12, 216, 336, 12
+    LTEXT "XISF compression", -1, 12, 239, 126, 12
+    COMBOBOX 17107, 142, 236, 206, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON "Save defaults", IDOK, 194, 264, 78, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 280, 264, 68, 14
 END

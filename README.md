@@ -8,13 +8,13 @@ and retain source metadata when saving in the same format.
 
 Both FITS and XISF plugins are included in every download.
 
-| Platform | Download v0.5.7 | Installation |
+| Platform | Download v0.5.8 | Installation |
 | --- | --- | --- |
-| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-Windows-x64-Setup-0.5.7.exe) | [Windows instructions](#optional-windows-installer) |
-| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-macOS-universal-0.5.7.dmg) | [macOS instructions](#macos-installation-dmg) |
+| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-Windows-x64-Setup-0.5.8.exe) | [Windows instructions](#optional-windows-installer) |
+| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-macOS-universal-0.5.8.dmg) | [macOS instructions](#macos-installation-dmg) |
 
-For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-Windows-x64.zip)
-and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.7/Seiza-Photoshop-macOS-universal.zip)
+For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-Windows-x64.zip)
+and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-macOS-universal.zip)
 downloads are also available. See [all releases](https://github.com/theatrus/xisf-photoshop/releases).
 
 ### Optional Windows installer
@@ -93,29 +93,29 @@ same settings, even without an image open.
 
 | Setting | Default |
 | --- | --- |
-| Import depth | 32-bit float |
+| Open as | 32-bit float |
 | Debayer tagged images to RGB | Enabled; uses recognized Bayer metadata |
-| Saved sample type | Match document depth |
-| Default XISF compression | None |
-| Ask on every Open | Enabled |
-| Ask on every Save / Save As | Disabled |
+| Save as | Match document depth |
+| XISF compression | None |
+| Ask on every open | Enabled |
+| Ask on every save | Disabled |
 | Remove astrometric solution on save | Disabled; dimension changes still remove the solution automatically |
 
 The Open dialog starts with **Remember choice** unchecked. Check it to save
 your import choice for both formats and stop future Open prompts. Re-enable
-**Ask on every Open** in settings to show them again. Cancel never remembers a choice.
+**Ask on every open** in settings to show them again. Cancel never remembers a choice.
 
 For a 16-bit workflow, choose 16-bit import and leave the saved sample type at
 **Match document depth**. This follows later changes to the document's mode too.
 
 Settings persist across restarts and updates. Existing documents retain their
 import and save choices; to override a document's saved type, enable
-**Ask on every Save / Save As** and use Save As. One-off save choices do not
+**Ask on every save** and use Save As. One-off save choices do not
 change global defaults. Revert reuses the document's import choice.
 
-For smaller XISF files, set **Default XISF compression** to **Zstandard (lossless)**.
+For smaller XISF files, set **XISF compression** to **Zstandard (lossless)**.
 Saves use this setting without an extra prompt. To choose compression for one
-document, enable **Ask on every Save / Save As** and select **None** or
+document, enable **Ask on every save** and select **None** or
 **Zstandard (lossless)** in the XISF save options. That choice stays with the
 document; documents without an explicit choice follow the current default.
 Compression preserves the saved UInt16 or Float32 samples exactly and does not
@@ -124,10 +124,10 @@ The compression setting applies only to XISF; FITS output remains uncompressed.
 
 ## Bayer / CFA import
 
-For single-channel images, the Open dialog includes a **Color filter array** selector:
+For single-channel images, the Open dialog includes a **Debayer** selector:
 
 - **Keep raw grayscale:** retain the sensor mosaic without interpolation.
-- **Debayer to RGB â€” Auto (metadata):** use the file's Bayer pattern. Missing or
+- **Auto (from metadata):** use the file's Bayer pattern. Missing or
   unsupported patterns stay grayscale; existing RGB images are unchanged.
 - **RGGB / BGGR / GRBG / GBRG:** choose a pattern manually when metadata is missing or incorrect.
 
@@ -163,7 +163,7 @@ The plugin does not recalculate coordinates or shift the solution for a crop.
 
 For rotations, flips, warps, or crop-and-resample operations that leave dimensions
 unchanged, enable **Remove astrometric solution on save** in the plugin settings.
-For a document-specific choice, enable **Ask on every Save / Save As** and use
+For a document-specific choice, enable **Ask on every save** and use
 **Remove astrometric solution** in the save options. That choice is remembered for
 the document; documents without an explicit choice follow the current default.
 Removal applies to the saved file and leaves the open document's source metadata

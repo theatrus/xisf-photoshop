@@ -29,8 +29,8 @@ inline INT_PTR CALLBACK seizaOptionsProc(HWND window, UINT message, WPARAM wpara
             SendDlgItemMessageW(window, SEIZA_COMPRESSION_CHOICE, CB_SETCURSEL, *data.compression, 0);
         }
         if (data.debayer) {
-            for (const auto* label : {L"Keep raw grayscale", L"Debayer to RGB - Auto (metadata)",
-                L"Debayer to RGB - RGGB", L"Debayer to RGB - BGGR", L"Debayer to RGB - GRBG", L"Debayer to RGB - GBRG"})
+            for (const auto* label : {L"Keep raw grayscale", L"Auto (from metadata)",
+                L"RGGB", L"BGGR", L"GRBG", L"GBRG"})
                 SendDlgItemMessageW(window, SEIZA_DEBAYER_CHOICE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
             SendDlgItemMessageW(window, SEIZA_DEBAYER_CHOICE, CB_SETCURSEL, *data.debayer, 0);
         }
@@ -59,7 +59,7 @@ inline INT_PTR CALLBACK seizaSettingsProc(HWND window, UINT message, WPARAM wpar
         for (int control : {SEIZA_IMPORT_DEFAULT, SEIZA_EXPORT_DEFAULT}) {
             if (control == SEIZA_EXPORT_DEFAULT)
                 SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Match document depth"));
-            SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"32-bit floating point"));
+            SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"32-bit float"));
             SendDlgItemMessageW(window, control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"16-bit integer"));
         }
         SendDlgItemMessageW(window, SEIZA_IMPORT_DEFAULT, CB_SETCURSEL, data->readDepth == 16 ? 1 : 0, 0);
