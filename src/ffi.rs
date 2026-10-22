@@ -290,6 +290,8 @@ pub unsafe extern "C" fn seiza_image_icc(
 
 /// Encode with an optional authoritative host ICC profile. If replace_icc is 1,
 /// an empty profile removes the source profile; 0 preserves source metadata.
+/// Mode 2 uses the host profile except for originally untagged XISF images,
+/// which remain untagged even when Photoshop supplies a default profile.
 /// # Safety
 /// Follows seiza_encode_with_metadata; icc must be readable for icc_length bytes
 /// (null is allowed for zero bytes). All buffers remain owned by the caller.
@@ -414,7 +416,7 @@ pub unsafe extern "C" fn seiza_encode_with_compression(
             || samples != count
             || xmp_length > crate::metadata::LIMIT * 2
             || (xmp.is_null() && xmp_length != 0)
-            || replace_icc > 1
+            || replace_icc > 2
             || remove_astrometry > 1
             || icc_length > crate::icc::LIMIT
             || (icc.is_null() && icc_length != 0)
@@ -427,6 +429,7 @@ pub unsafe extern "C" fn seiza_encode_with_compression(
             unsafe { slice::from_raw_parts(xmp, xmp_length) }
         };
         let mut metadata = crate::metadata::Metadata::from_xmp(xmp)?.unwrap_or_default();
+        let preserve_untagged = replace_icc == 2 && metadata.is_untagged_xisf()?;
         if remove_astrometry == 1 {
             metadata.remove_astrometry()?;
         }
@@ -448,7 +451,7 @@ pub unsafe extern "C" fn seiza_encode_with_compression(
             planes as usize,
             unsafe { slice::from_raw_parts(pixels, samples) },
             &metadata,
-            (replace_icc == 1).then_some(profile),
+            (replace_icc != 0).then_some(if preserve_untagged { &[] } else { profile }),
             compression,
             CallbackWriter {
                 callback: callback.ok_or("Missing write callback")?,

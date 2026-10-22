@@ -1,4 +1,5 @@
-//! Host-independent astronomy codecs. Photoshop sees planar linear f32 pixels.
+//! Host-independent astronomy codecs. Photoshop sees planar f32 pixels.
+//! Sample values may already be stretched; floating-point storage does not imply linear light.
 //! Float samples retain physical values; unsigned integer camera samples use
 //! their fixed full-scale range. There is no histogram normalization or stretch.
 

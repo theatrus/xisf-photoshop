@@ -458,7 +458,7 @@ void writeStart(FormatRecord& r) {
     const uint32_t removeAstrometry = options.removeAstrometry == 2 ? defaults.removeAstrometry : options.removeAstrometry;
     const uint32_t compression = kFormat == 2 ? (options.xisfCompression == 2 ? defaults.xisfCompression : options.xisfCompression) : 0;
     if (seiza_encode_with_compression(kFormat, outputDepth, w, h, r.planes, samples.data(), count,
-        metadata.data(), metadata.size(), kFormat == 2 && r.canUseICCProfiles ? 1u : 0u,
+        metadata.data(), metadata.size(), kFormat == 2 && r.canUseICCProfiles ? 2u : 0u,
         profile.data(), profile.size(), removeAstrometry, compression, writeBytes, &context, error, sizeof(error))) {
         if (context.cancelled) throw HostError{userCanceledErr};
         throw std::runtime_error(error);

@@ -8,13 +8,13 @@ and retain source metadata when saving in the same format.
 
 Both FITS and XISF plugins are included in every download.
 
-| Platform | Download v0.5.8 | Installation |
+| Platform | Download v0.5.9 | Installation |
 | --- | --- | --- |
-| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-Windows-x64-Setup-0.5.8.exe) | [Windows instructions](#optional-windows-installer) |
-| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-macOS-universal-0.5.8.dmg) | [macOS instructions](#macos-installation-dmg) |
+| Windows 10/11 x64 | [Installer (.exe)](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.9/Seiza-Photoshop-Windows-x64-Setup-0.5.9.exe) | [Windows instructions](#optional-windows-installer) |
+| macOS â€” Apple silicon and Intel | [Drag-and-drop DMG](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.9/Seiza-Photoshop-macOS-universal-0.5.9.dmg) | [macOS instructions](#macos-installation-dmg) |
 
-For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-Windows-x64.zip)
-and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.8/Seiza-Photoshop-macOS-universal.zip)
+For manual installation, [Windows ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.9/Seiza-Photoshop-Windows-x64.zip)
+and [macOS ZIP](https://github.com/theatrus/xisf-photoshop/releases/download/v0.5.9/Seiza-Photoshop-macOS-universal.zip)
 downloads are also available. See [all releases](https://github.com/theatrus/xisf-photoshop/releases).
 
 ### Optional Windows installer
@@ -191,14 +191,21 @@ plugin discarded metadata, reopen the original FITS/XISF to capture it.
 
 ## Color profiles
 
+XISF images opened without an ICC profile stay untagged when saved, even if
+Photoshop assigns a working profile. This avoids adding a profile that changes
+their appearance in other astronomy software. Pixel values are not gamma-corrected.
+
 XISF's embedded ICC profile is passed to Photoshop on Open, for both 16-bit and
 32-bit imports. Photoshop's color-management settings control whether to retain
 it, convert it, or ask about a profile mismatch.
 
-XISF saves embed the document's current profile, including changes made with
-**Assign Profile** or **Convert to Profile**. Turning off **ICC Profile**
+For sources with an ICC profile, XISF saves embed the document's current profile,
+including changes made with **Assign Profile** or **Convert to Profile**.
+Turning off **ICC Profile**
 in Photoshop's save dialog, or saving an untagged document, omits it. The source
 profile stored with other metadata is not restored over that choice.
+New Photoshop documents without retained XISF metadata also use the document's
+current profile.
 
 Only profiles matching the imported color mode are assigned: a grayscale profile
 is not applied to debayered RGB. Untagged images use Photoshop's normal missing-profile

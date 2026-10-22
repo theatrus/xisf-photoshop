@@ -199,6 +199,37 @@ document converted to 32-bit saved as Float32 with Photoshop's Linear Grayscale
 Profile. Native host tests additionally cover importing directly as 32-bit. Interactive macOS verification
 remains separate from the CI host tests.
 
+## Diagnosing 32-bit pixel and profile changes
+
+Use `cargo run --release --locked --example compare_pixels -- original.xisf saved.xisf`
+to compare decoded samples and embedded profiles without modifying either source
+file. The diagnostic also counts changes outside a 64-by-64 test patch at
+`[100,164)` on both axes. Compare files with matching dimensions and channel counts.
+Normal metadata decoding may populate the local metadata cache.
+
+A real Photoshop 27.10 Windows run used a duplicate of an untagged Float32 gray
+image with 238,257,504 samples. Saving without edits retained every sample
+bit-for-bit but embedded Photoshop's Linear Grayscale Profile (gamma 1.0).
+Filling the test patch changed exactly 4,096 samples; all other samples remained
+bit-identical. Saving the edited duplicate with `embedProfiles: false` omitted
+the profile and retained the same pixel results. This tested a local fill, not
+the clone/heal brush. A brightness change after reopening must be checked against
+both sample values and ICC tagging before adding any pixel transfer correction.
+
+The save adapter now uses ICC mode 2: retain the source's untagged state when
+the first XISF image had no ICC element, otherwise use the host's current profile.
+Mode 1 remains an explicit host-profile override for backend callers. No XMP
+schema change is needed, so already-open documents retain their source tagging.
+Regression tests cover 16/32-bit output, grayscale/RGB mode changes, crops,
+profile removal, and new documents without XISF provenance. The native SDK host
+also supplies a replacement profile for both tagged and untagged imports, with
+both uncompressed and Zstandard output, and checks the resulting profile and pixels.
+The fixed FFI save path was also run with XMP read from the open Photoshop
+document and pixels/profile from its edited test export: all 238,257,504 samples
+were bit-identical and the output had no ICC profile. The updated plugin was
+tested in the SDK host; Photoshop was not restarted to reload it while the
+original document was open.
+
 ## CI and release packaging
 
 Use [GitHub Releases](https://github.com/theatrus/xisf-photoshop/releases/latest)

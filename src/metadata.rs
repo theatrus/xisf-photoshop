@@ -537,6 +537,20 @@ impl Metadata {
         Ok(result)
     }
 
+    /// Whether the retained first XISF image had no profile. Documents without
+    /// XISF provenance use the host profile normally. Check presence rather than
+    /// color-model compatibility so later mode changes still use the new profile.
+    pub(crate) fn is_untagged_xisf(&self) -> Result<bool> {
+        let Some(xml) = &self.xml else {
+            return Ok(false);
+        };
+        let mut root = parse(xml)?;
+        Ok(!image(&mut root)?
+            .children()
+            .iter()
+            .any(|node| node.name() == "ICCProfile"))
+    }
+
     /// Return the first image's embedded profile only when its color model matches
     /// the imported document (a gray profile cannot describe debayered RGB).
     pub fn icc_profile(&self, planes: usize) -> Result<Vec<u8>> {

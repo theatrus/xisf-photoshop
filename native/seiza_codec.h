@@ -41,6 +41,7 @@ int32_t seiza_image_xmp(const SeizaImage* image, SeizaWriteCallback callback,
 int32_t seiza_image_icc(const SeizaImage* image, SeizaWriteCallback callback,
     void* context, char* error, size_t capacity);
 // replace_icc: 1 uses the host profile (zero length removes it); 0 preserves metadata.
+// 2 uses the host profile but keeps originally untagged XISF images untagged.
 int32_t seiza_encode_with_profile(uint32_t format, uint32_t depth, uint32_t width,
     uint32_t height, uint32_t planes, const float* pixels, size_t samples,
     const uint8_t* xmp, size_t xmp_length, uint32_t replace_icc,

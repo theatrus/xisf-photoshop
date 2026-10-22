@@ -204,7 +204,7 @@ static std::vector<uint8_t> profileFixture(uint32_t planes, uint8_t marker) {
     bytes[80] = marker;
     return bytes;
 }
-static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, uint32_t planes) {
+static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, uint32_t planes, bool sourceProfile) {
     if (format == 1) {
         size_t end = 0;
         while (end + 320 < encoded.size() && std::memcmp(encoded.data() + end, "END     ", 8)) end += 80;
@@ -216,14 +216,16 @@ static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, u
     } else {
         const uint32_t length = encoded[8] | (encoded[9] << 8) | (encoded[10] << 16) | (encoded[11] << 24);
         std::string xml(reinterpret_cast<const char*>(encoded.data() + 16), length);
-        const std::string fields = "<FITSKeyword name=\"OBJECT\" value=\"'metadata-document-A'\" comment=\"original target\"/>"
+        std::string fields = "<FITSKeyword name=\"OBJECT\" value=\"'metadata-document-A'\" comment=\"original target\"/>"
             "<FITSKeyword name=\"EXPTIME\" value=\"180\" comment=\"seconds\"/>"
             "<FITSKeyword name=\"CRPIX1\" value=\"1.5\"/>"
             "<Property id=\"AstrometricSolution:ReferenceImageCoordinates\" type=\"String\">1.5,1.5</Property>"
-            "<Property id=\"PCL:AstrometricSolution:ReferenceImageCoordinates\" type=\"String\">1.5,1.5</Property>"
-            "<ICCProfile location=\"attachment:" + std::to_string(encoded.size()) + ":132\"/>";
-        const auto profile = profileFixture(planes, 1);
-        encoded.insert(encoded.end(), profile.begin(), profile.end());
+            "<Property id=\"PCL:AstrometricSolution:ReferenceImageCoordinates\" type=\"String\">1.5,1.5</Property>";
+        if (sourceProfile) {
+            fields += "<ICCProfile location=\"attachment:" + std::to_string(encoded.size()) + ":132\"/>";
+            const auto profile = profileFixture(planes, 1);
+            encoded.insert(encoded.end(), profile.begin(), profile.end());
+        }
         const auto end = xml.find("</Image>");
         if (end != std::string::npos) xml.insert(end, fields);
         else {
@@ -243,7 +245,8 @@ static void addMetadataFixture(uint32_t format, std::vector<uint8_t>& encoded, u
 static void run(Module module, uint32_t format, uint32_t width, uint32_t height, uint32_t planes,
     uint32_t readDepth, uint32_t writeDepth, bool interactive = false, bool useDefaults = false,
     bool changeMode = false, uint32_t legacyOptions = 0, uint32_t cfaMode = UINT32_MAX, bool tagged = true,
-    uint32_t astrometry = 2, uint32_t compression = 2, uint32_t defaultCompression = 0) {
+    uint32_t astrometry = 2, uint32_t compression = 2, uint32_t defaultCompression = 0,
+    bool sourceProfile = true) {
 #ifdef _WIN32
     auto entry = reinterpret_cast<Entry>(GetProcAddress(module, "PluginMain"));
     require(FindResourceW(module, MAKEINTRESOURCEW(16000), L"PiPL") != nullptr, "PiPL resource missing");
@@ -274,7 +277,7 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         }
     }
     // A Unicode path also verifies that plug-in I/O only uses host file handles.
-    addMetadataFixture(format, encoded, planes);
+    addMetadataFixture(format, encoded, planes, sourceProfile);
 #ifdef _WIN32
     File file = CreateFileW(L"build\\native\\host-\u661f.tmp", GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
@@ -314,13 +317,13 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         success(reader, formatSelectorReadContinue);
         require(reader.pixels == expected && reader.record.data == nullptr, "Host received incorrect pixels");
         success(reader, formatSelectorReadFinish);
-        if (format == 2) {
+        if (format == 2 && sourceProfile) {
             const auto wanted = profileFixture(planes, 1);
             require(reader.record.iCCprofileData && reader.record.iCCprofileSize == wanted.size(), "ICC import missing");
             require(std::memcmp(lockHandle(reader.record.iCCprofileData, false), wanted.data(), wanted.size()) == 0,
                 "ICC import changed the source profile");
             disposeHandle(reader.record.iCCprofileData); reader.record.iCCprofileData = nullptr; reader.record.iCCprofileSize = 0;
-        } else require(!reader.record.iCCprofileData, "FITS unexpectedly assigned an ICC profile");
+        } else require(!reader.record.iCCprofileData, "Untagged import unexpectedly assigned an ICC profile");
         require(reader.state == 0, "Read state leaked");
         require(!reader.xmp.empty(), "Import did not store document XMP");
         if (cfaMode != UINT32_MAX) saveDefaults({readDepth, 0, true, false, cfaMode ? 0u : 1u});
@@ -399,7 +402,8 @@ static void run(Module module, uint32_t format, uint32_t width, uint32_t height,
         if (format == 2) {
             std::vector<uint8_t> savedProfile;
             require(seiza_image_icc(decoded, append, &savedProfile, error, sizeof(error)) == 0, error);
-            require(savedProfile == currentProfile, "Save did not use the document's converted ICC profile");
+            require(savedProfile == (sourceProfile ? currentProfile : std::vector<uint8_t>{}),
+                "Save did not preserve source tagging or use the tagged document's current profile");
             require(handleSize(writer.record.iCCprofileData) == currentProfile.size(), "Plugin disposed host-owned profile");
         }
         seiza_image_free(decoded);
@@ -577,6 +581,8 @@ int main(int argc, char** argv) {
                         // Explicit choices win over a conflicting global default.
                         run(module, format, 3, 2, planes, readDepth, writeDepth, false, false,
                             false, 0, UINT32_MAX, true, 2, compression, compression == 1 ? 0 : 1);
+                        if (format == 2) run(module, format, 3, 2, planes, readDepth, writeDepth, false, false,
+                            false, 0, UINT32_MAX, true, 2, compression, compression == 1 ? 0 : 1, false);
                         saveDefaults({});
                     }
                 }

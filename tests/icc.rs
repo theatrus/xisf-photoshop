@@ -267,6 +267,99 @@ fn host_profile_replaces_source_or_removes_it_without_changing_pixels_or_other_m
 }
 
 #[test]
+fn photoshop_save_preserves_source_tagging_across_depths_crops_and_mode_changes() {
+    use seiza_photoshop::ffi::seiza_encode_with_profile;
+    use std::ffi::{CStr, c_void};
+    unsafe extern "C" fn append(context: *mut c_void, data: *const u8, length: usize) -> i32 {
+        unsafe {
+            (&mut *context.cast::<Vec<u8>>())
+                .extend_from_slice(std::slice::from_raw_parts(data, length));
+        }
+        0
+    }
+
+    // The second image has an ICC element even when the imported first one does
+    // not. Only the first image's tagging is relevant to the Photoshop document.
+    for source_planes in [1, 3] {
+        let original = profile(source_planes, 1);
+        for source_tagged in [false, true] {
+            let image = decode(
+                Format::Xisf,
+                &fixture(
+                    if source_tagged {
+                        r#"<ICCProfile location="attachment:8192:160"/>"#
+                    } else {
+                        ""
+                    },
+                    &original,
+                    source_planes,
+                ),
+            )
+            .unwrap();
+            let xmp = image.metadata.xmp().unwrap();
+            for output_planes in [1, 3] {
+                let current = profile(output_planes, 2);
+                for depth in [16, 32] {
+                    for crop in [false, true] {
+                        let height = if crop { 1 } else { 2 };
+                        let pixels = vec![0.25f32; 2 * height * output_planes];
+                        for host_profile in [&current[..], &[][..]] {
+                            // No provenance is a new Photoshop document; it
+                            // must still be allowed to embed its current profile.
+                            for retained_xmp in [&xmp[..], &[][..]] {
+                                let mut out = Vec::<u8>::new();
+                                let mut error = [0i8; 256];
+                                let result = unsafe {
+                                    seiza_encode_with_profile(
+                                        2,
+                                        depth,
+                                        2,
+                                        height as u32,
+                                        output_planes as u32,
+                                        pixels.as_ptr(),
+                                        pixels.len(),
+                                        retained_xmp.as_ptr(),
+                                        retained_xmp.len(),
+                                        2,
+                                        host_profile.as_ptr(),
+                                        host_profile.len(),
+                                        Some(append),
+                                        (&mut out as *mut Vec<u8>).cast(),
+                                        error.as_mut_ptr(),
+                                        error.len(),
+                                    )
+                                };
+                                assert_eq!(result, 0, "{:?}", unsafe {
+                                    CStr::from_ptr(error.as_ptr())
+                                });
+                                let saved = decode(Format::Xisf, &out).unwrap();
+                                let expected = if retained_xmp.is_empty() || source_tagged {
+                                    host_profile
+                                } else {
+                                    &[]
+                                };
+                                assert_eq!(
+                                    saved.metadata.icc_profile(output_planes).unwrap(),
+                                    expected
+                                );
+                                assert_eq!(xml(&out).contains("keep me"), !retained_xmp.is_empty());
+                                for value in &saved.pixels {
+                                    if depth == 32 {
+                                        assert_eq!(value.to_bits(), 0.25f32.to_bits());
+                                    } else {
+                                        assert!((value - 0.25).abs() < 0.00002);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn color_model_mismatch_does_not_assign_an_incorrect_profile() {
     let data = profile(1, 1);
     let mut image = decode(
@@ -372,7 +465,7 @@ fn icc_ffi_rejects_invalid_buffers_and_propagates_callback_errors() {
         for (flag, profile_ptr, length) in [
             (1, ptr::null(), 1),
             (1, bytes.as_ptr(), icc::LIMIT + 1),
-            (2, bytes.as_ptr(), bytes.len()),
+            (3, bytes.as_ptr(), bytes.len()),
         ] {
             assert_ne!(
                 seiza_encode_with_profile(
