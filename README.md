@@ -76,6 +76,14 @@ Neither import option applies a display stretch or gamma correction. Unsigned
 integer input is normalized to a fixed full-scale range; saving does not restore
 an original camera ADU scale that was normalized or rescaled on import.
 
+If a 32-bit import looks much brighter than the 16-bit version, open
+**View → 32-bit Preview Options**, select **Exposure and Gamma**, and adjust
+the preview. Photoshop uses linear color handling for 32-bit documents, which
+can make already-stretched images look brighter.
+
+These preview controls change only the display, not pixel values saved to FITS
+or XISF. **Image → Adjustments → Exposure** changes the image data instead.
+
 **Save and Save As match the document's depth without prompting:** 16-bit
 documents save as UInt16, and 32-bit documents as Float32. Convert 8-bit documents
 through **Image â†’ Mode â†’ 16 Bits/Channel** or **32 Bits/Channel** before saving.
